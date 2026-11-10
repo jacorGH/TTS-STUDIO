@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: tts-studio-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: APP_ACCESS_CODE
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: TTS_MODEL
+        value: gpt-4o-mini-tts
