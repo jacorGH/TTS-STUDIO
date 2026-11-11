@@ -140,7 +140,7 @@ async function exportZip(){
   folder.file("manifest.json",JSON.stringify({language:"en",format:"mp3",recordings:ids},null,2));
   const content=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:3}});
   const url=URL.createObjectURL(content), a=document.createElement("a");
-  a.href=url;a.download="tts-audio-en.zip";document.body.appendChild(a);a.click();a.remove();
+  a.href=url;a.download=(window.ttsBatchName?String(window.ttsBatchName).replace(/[^a-zA-Z0-9._-]+/g,"-"):"tts-audio-en")+".zip";document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),30000);
 }
 function safeFilename(s){return String(s).replace(/[^a-zA-Z0-9._-]/g,"_").slice(0,180)||"recording";}
@@ -170,7 +170,7 @@ $("settingsCancel").addEventListener("click",()=>$("settingsModal").hidden=true)
 $("saveSettings").addEventListener("click",saveSettings);
 $("testConnection").addEventListener("click",()=>{localStorage.setItem("tts_api_base",normalizeBase($("apiBase").value.trim()));localStorage.setItem("tts_access_code",$("accessCode").value);testConnection(true);});
 $("chooseFile").addEventListener("click",()=>$("fileInput").click());
-$("fileInput").addEventListener("change",async e=>{const f=e.target.files?.[0];if(!f)return;try{$("jsonInput").value=await f.text();parseBatch();}catch{showToast("Could not read that file.");}e.target.value="";});
+$("fileInput").addEventListener("change",async e=>{const f=e.target.files?.[0];if(!f)return;try{$("jsonInput").value=await f.text();window.ttsBatchName=f.name.replace(/\.json$/i,"");parseBatch();}catch{showToast("Could not read that file.");}e.target.value="";});
 $("parseButton").addEventListener("click",parseBatch);
 $("loadSample").addEventListener("click",loadSample);
 $("generateButton").addEventListener("click",generateBatch);

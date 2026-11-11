@@ -142,6 +142,7 @@
     try {
       const lines = await batchLines(b);
       el('jsonInput').value = JSON.stringify(lines, null, 1);
+      window.ttsBatchName = b.file.replace(/\.json$/i, '');
       parseBatch();
       el('batchPanel').scrollIntoView({ behavior: 'smooth' });
     } catch (e) { showToast(e.message); }
@@ -234,32 +235,43 @@
   }
 
   // ---------- exporting ----------
+  // One ZIP per batch that has new recordings, named after the batch (e.g. 01-capernaum.zip); a very large batch is
+  // split into parts (01-capernaum-part2.zip). Each holds audio/<lang>/<id>.mp3.
   async function exportNew() {
     if (!window.JSZip) { showToast('ZIP library did not load. Check your connection.'); return; }
-    const done = exported(), stamp = new Date().toISOString().slice(0, 10);
-    const pending = [];
-    for (const b of P.batches) for (const l of await batchLines(b)) { if (done.has(l.id)) continue; const blob = await dbGet(l.id); if (blob instanceof Blob) pending.push([l.id, blob]); }
-    if (!pending.length) { showToast('Nothing new to export.'); return; }
-    el('projectExport').disabled = true;
-    let part = 1, zip = new JSZip(), folder = zip.folder('audio/' + P.lang), bytes = 0, ids = [];
-    const flush = async () => {
-      if (!ids.length) return;
-      el('projectProgress').textContent = 'Packing part ' + part + ' (' + ids.length + ' files)…';
-      const content = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
-      const url = URL.createObjectURL(content), a = document.createElement('a');
-      a.href = url; a.download = 'tts-audio-' + P.lang + '-' + stamp + '-part' + part + '.zip';
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      ids.forEach((i) => done.add(i)); saveExported(done);
-      part++; zip = new JSZip(); folder = zip.folder('audio/' + P.lang); bytes = 0; ids = [];
-      await wait(1500);
-    };
-    for (const [id, blob] of pending) {
-      if (bytes + blob.size > P.partBytes && ids.length) await flush();
-      folder.file(safeFilename(id) + '.mp3', blob); bytes += blob.size; ids.push(id);
+    const done = exported();
+    const work = [];
+    for (const b of P.batches) {
+      const items = [];
+      for (const l of await batchLines(b)) { if (done.has(l.id)) continue; const blob = await dbGet(l.id); if (blob instanceof Blob) items.push([l.id, blob]); }
+      if (items.length) work.push([b, items]);
     }
-    await flush();
-    el('projectProgress').textContent = 'Exported ' + pending.length + ' recordings in ' + (part - 1) + ' ZIP file' + (part > 2 ? 's' : '') + '. Unzip each into the game folder and push.';
+    if (!work.length) { showToast('Nothing new to export.'); return; }
+    el('projectExport').disabled = true;
+    let files = 0, count = 0;
+    for (const [b, items] of work) {
+      const stem = b.file.replace(/\.json$/i, '').replace(/[^a-zA-Z0-9._-]+/g, '-');
+      let part = 1, zip = new JSZip(), folder = zip.folder('audio/' + P.lang), bytes = 0, ids = [];
+      const flush = async (last) => {
+        if (!ids.length) return;
+        el('projectProgress').textContent = 'Packing ' + stem + (part > 1 || !last ? ' part ' + part : '') + ' (' + ids.length + ' files)…';
+        const content = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+        const url = URL.createObjectURL(content), a = document.createElement('a');
+        a.href = url; a.download = stem + (part > 1 || !last ? '-part' + part : '') + '.zip';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        ids.forEach((i) => done.add(i)); saveExported(done);
+        files++; count += ids.length;
+        part++; zip = new JSZip(); folder = zip.folder('audio/' + P.lang); bytes = 0; ids = [];
+        await wait(1500);
+      };
+      for (const [id, blob] of items) {
+        if (bytes + blob.size > P.partBytes && ids.length) await flush(false);
+        folder.file(safeFilename(id) + '.mp3', blob); bytes += blob.size; ids.push(id);
+      }
+      await flush(part === 1);
+    }
+    el('projectProgress').textContent = 'Exported ' + count + ' recordings in ' + files + ' ZIP file' + (files > 1 ? 's' : '') + ', named by batch. Unzip each into the game folder and push.';
     summarize();
   }
   async function redoName() {
