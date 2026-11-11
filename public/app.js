@@ -1,184 +1,154 @@
-const DEFAULT_API_BASE = "";
-const CAST_LABELS = {N:"Narrator · Ash",W:"Woman narrator · Coral",S:"Scripture · Sage",M:"Male character · Onyx",F:"Female character · Nova"};
+(() => {
+'use strict';
 const $ = id => document.getElementById(id);
-let batch = [];
-let generated = new Map();
-let stopRequested = false;
-let activeAudioUrl = null;
-let toastTimer;
-
-const dbPromise = new Promise((resolve, reject) => {
-  const request = indexedDB.open("tts-studio-audio", 1);
-  request.onupgradeneeded = () => request.result.createObjectStore("audio");
-  request.onsuccess = () => resolve(request.result);
-  request.onerror = () => reject(request.error);
-});
-
-async function dbGet(key) {
-  try { const db = await dbPromise; return await new Promise((resolve,reject)=>{const r=db.transaction("audio").objectStore("audio").get(key);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);}); }
-  catch { return null; }
+const state = { lines: [], generated: new Map(), manifestText: '', running: false };
+const profiles = {
+  N:{name:'Narrator',voice:'ash',description:'Thoughtful young man; warm, steady delivery.'},
+  W:{name:'Woman narrator',voice:'coral',description:'Thoughtful young woman; clear, natural delivery.'},
+  S:{name:'Scripture',voice:'sage',description:'Reverent, clear, measured Scripture reading.'},
+  M:{name:'Conversational man',voice:'onyx',description:'Sincere conversational male delivery.'},
+  F:{name:'Conversational woman',voice:'nova',description:'Sincere conversational female delivery.'}
+};
+const instructions = {
+  N:'Speak as a thoughtful young man in first-century Judea. Use a warm, grounded, natural delivery.',
+  W:'Speak as a thoughtful young woman in first-century Judea. Use a clear, natural delivery.',
+  S:'Read Scripture reverently, clearly, and at a measured pace. Preserve the meaning and pronunciation of the text.',
+  M:'Use a sincere, natural conversational male delivery.',
+  F:'Use a sincere, natural conversational female delivery.'
+};
+function apiBase(){return $('apiUrl').value.trim().replace(/\/+$/,'');}
+function headers(){return {'Content-Type':'application/json','x-app-access-code':$('accessCode').value};}
+function message(el,text,ok=false){el.textContent=text;el.style.color=ok?'#82d5bd':'#f0b9a8';}
+function renderProfiles(){
+  $('voiceProfiles').innerHTML=Object.entries(profiles).map(([tag,p])=>`<div class="voice-card"><strong>${tag} · ${p.name}</strong><small>OpenAI voice: ${p.voice}<br>${p.description}</small></div>`).join('');
 }
-async function dbPut(key, value) {
-  const db = await dbPromise;
-  return new Promise((resolve,reject)=>{const r=db.transaction("audio","readwrite").objectStore("audio").put(value,key);r.onsuccess=()=>resolve();r.onerror=()=>reject(r.error);});
-}
-async function dbDeletePrefix(prefix) {
-  const db = await dbPromise;
-  return new Promise((resolve,reject)=>{
-    const tx=db.transaction("audio","readwrite"), store=tx.objectStore("audio"), r=store.openCursor();
-    r.onsuccess=()=>{const c=r.result;if(c){if(String(c.key).startsWith(prefix))c.delete();c.continue();}};
-    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);
+function validateLines(raw){
+  const data=JSON.parse(raw);
+  if(!Array.isArray(data)) throw new Error('The JSON root must be an array.');
+  const seen=new Set();
+  const lines=data.map((x,i)=>{
+    if(!x || typeof x!=='object') throw new Error(`Line ${i+1} is not an object.`);
+    const id=String(x.id||'').trim(), text=String(x.text||'').trim(), tag=String(x.voice||'N').trim().toUpperCase();
+    if(!id || !text) throw new Error(`Line ${i+1} needs both id and text.`);
+    if(seen.has(id)) throw new Error(`Duplicate line ID: ${id}`);
+    if(!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid ID "${id}". Use letters, numbers, _ or -.`);
+    seen.add(id);
+    return {id,text,tag:profiles[tag]?tag:'N'};
   });
+  if(!lines.length) throw new Error('No dialogue lines were found.');
+  return lines;
 }
-function settings(){return {base:(localStorage.getItem("tts_api_base")||DEFAULT_API_BASE).replace(/\/+$/,""),code:localStorage.getItem("tts_access_code")||""};}
-function headers(){return {"x-app-access-code":settings().code};}
-function showToast(message){$("toast").textContent=message;$("toast").classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>$("toast").classList.remove("show"),2600);}
-function setConnection(ok,message){$("connectionBadge").textContent=ok?"Connected":"Not connected";$("connectionBadge").className="status-badge "+(ok?"good":"bad");$("connectionText").textContent=message;}
-function setProgress(done,total,label){const pct=total?Math.round(done/total*100):0;$("progressBar").style.width=pct+"%";$("progressPercent").textContent=pct+"%";$("progressLabel").textContent=label;$("generatedCount").textContent=`${done} / ${total}`;}
-function safeText(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-function normalizeBase(base){return base.replace(/\/+$/,"");}
-function batchKey(item){return `${item.id}`;}
-
-async function testConnection(showMessage=true){
-  const {base,code}=settings();
-  if(!base||!code){setConnection(false,"Set your backend URL and access code in Settings.");if(showMessage)$("settingsMessage").textContent="Enter both values first.";return false;}
+function updateProgress(done,total,label){
+  $('progressCount').textContent=`${done} / ${total}`;
+  $('progressBar').style.width=total?`${done/total*100}%`:'0%';
+  $('progressLabel').textContent=label;
+}
+function renderResults(){
+  $('results').innerHTML=[...state.generated.entries()].map(([id,item])=>{
+    const url=URL.createObjectURL(item.blob);
+    return `<div class="result"><div><strong>${escapeHtml(id)}</strong><small>${escapeHtml(item.voice)} · ${Math.round(item.blob.size/1024)} KB</small></div><audio controls preload="none" src="${url}"></audio></div>`;
+  }).join('');
+  $('exportZip').disabled=state.generated.size===0;
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function testConnection(){
+  const base=apiBase(); if(!base){message($('connectionMessage'),'Enter your Render API URL.');return;}
+  $('connectionStatus').textContent='Checking…';
   try{
-    const health=await fetch(base+"/health");
-    if(!health.ok)throw new Error("Backend health check failed.");
-    const response=await fetch(base+"/api/voices",{headers:{"x-app-access-code":code}});
-    if(!response.ok){const d=await response.json().catch(()=>({}));throw new Error(d.error||"Access check failed.");}
-    const data=await response.json();
-    setConnection(true,`Connected · ${data.model||"TTS model ready"}`);
-    if(showMessage)$("settingsMessage").textContent=`Connected. Model: ${data.model}`;
-    return true;
-  }catch(e){setConnection(false,e.message);if(showMessage)$("settingsMessage").textContent=e.message;return false;}
-}
-
-function parseBatch(){
-  try{
-    const parsed=JSON.parse($("jsonInput").value);
-    if(!Array.isArray(parsed))throw new Error("The top-level JSON value must be an array.");
-    if(!parsed.length)throw new Error("The JSON array is empty.");
-    const seen=new Set();
-    batch=parsed.map((item,index)=>{
-      if(!item||typeof item!=="object")throw new Error(`Entry ${index+1} is not an object.`);
-      const id=String(item.id??"").trim(), voice=String(item.voice??"N").toUpperCase(), text=String(item.text??"");
-      if(!id)throw new Error(`Entry ${index+1} is missing its id.`);
-      if(seen.has(id))throw new Error(`Duplicate id: ${id}`);
-      if(!text.trim())throw new Error(`Entry ${index+1} has no text.`);
-      if(text.length>4096)throw new Error(`Entry ${index+1} exceeds 4,096 characters.`);
-      seen.add(id);
-      return {id,voice,text};
-    });
-    renderBatch();
-    loadCached();
-    $("parseStatus").textContent=`${batch.length} valid entries · ${batch.filter(x=>!CAST_LABELS[x.voice]).length} unknown voice tags use N`;
-    $("generateButton").disabled=false;
-    updateExportButton();
-    showToast(`${batch.length} dialogue entries loaded`);
-  }catch(e){$("parseStatus").textContent=e.message;showToast(e.message);}
-}
-function renderBatch(){
-  $("lineCount").textContent=`${batch.length} lines`;
-  $("lineList").className="line-list";
-  $("lineList").innerHTML=batch.map(item=>`<div class="line-item"><div class="line-top"><span class="line-id">${safeText(item.id)}</span><span class="line-voice">${safeText(item.voice)} · ${safeText(CAST_LABELS[item.voice]||"Fallback · Ash")}</span></div><div class="line-text">${safeText(item.text)}</div></div>`).join("");
-}
-async function loadCached(){
-  generated.clear();
-  for(const item of batch){const blob=await dbGet(batchKey(item));if(blob instanceof Blob)generated.set(batchKey(item),blob);}
-  renderAudio();
-  const done=batch.filter(x=>generated.has(batchKey(x))).length;
-  setProgress(done,batch.length,done?`${done} recording${done===1?"":"s"} restored from this device`:"Ready when you are");
-}
-async function generateBatch(){
-  if(!batch.length)return;
-  if(!(await testConnection(false))){showToast("Connect to your backend first.");return;}
-  stopRequested=false;$("generateButton").disabled=true;$("stopButton").disabled=false;
-  let done=batch.filter(x=>generated.has(batchKey(x))).length;
-  setProgress(done,batch.length,"Preparing batch…");
-  for(let i=0;i<batch.length;i++){
-    if(stopRequested)break;
-    const item=batch[i], key=batchKey(item);
-    if(generated.has(key))continue;
-    setProgress(done,batch.length,`Generating ${i+1} of ${batch.length} · ${item.id}`);
-    try{
-      const response=await fetch(settings().base+"/api/speech",{
-        method:"POST",headers:{...headers(),"Content-Type":"application/json"},
-        body:JSON.stringify({id:item.id,voice:item.voice,text:item.text})
-      });
-      if(!response.ok){const detail=await response.json().catch(()=>({}));throw new Error(detail.detail||detail.error||`HTTP ${response.status}`);}
-      const blob=await response.blob();
-      generated.set(key,blob);
-      await dbPut(key,blob);
-      done++;renderAudio();setProgress(done,batch.length,`Saved ${item.id}`);
-    }catch(e){
-      showToast(`Stopped at ${item.id}: ${e.message}`);
-      break;
-    }
+    const r=await fetch(base+'/health',{cache:'no-store'});
+    if(!r.ok) throw new Error(`Health check returned ${r.status}`);
+    const data=await r.json();
+    const v=await fetch(base+'/api/voices',{headers:headers(),cache:'no-store'});
+    if(!v.ok) throw new Error(v.status===401?'Access code rejected. Check APP_ACCESS_CODE.':`Voice check returned ${v.status}`);
+    $('connectionStatus').textContent='Connected';
+    message($('connectionMessage'),`Connected to ${data.service||'TTS server'}. Voice endpoint authenticated.`,true);
+    localStorage.setItem('ttsApiUrl',base);
+  }catch(e){
+    $('connectionStatus').textContent='Connection failed';
+    message($('connectionMessage'),`${e.message}. Check URL, Render status, and ALLOWED_ORIGINS.`);
   }
-  $("generateButton").disabled=false;$("stopButton").disabled=true;
-  const completed=batch.filter(x=>generated.has(batchKey(x))).length;
-  setProgress(completed,batch.length,stopRequested?"Paused by you":completed===batch.length?"Batch complete":"Batch paused · retry to continue");
-  updateExportButton();
-  if(completed===batch.length)showToast("All audio recordings generated.");
 }
-function renderAudio(){
-  const items=batch.filter(x=>generated.has(batchKey(x)));
-  $("audioList").innerHTML=items.map(item=>{
-    const blob=generated.get(batchKey(item));
-    const url=URL.createObjectURL(blob);
-    return `<div class="audio-item"><div class="audio-item-head"><strong>${safeText(item.id)}.mp3</strong><span class="audio-state">READY</span></div><audio controls preload="none" src="${url}"></audio></div>`;
-  }).join("");
-  updateExportButton();
+async function generate(){
+  if(state.running || !state.lines.length) return;
+  if(!apiBase() || !$('accessCode').value){message($('jsonMessage'),'Connect to your server before generating.');return;}
+  state.running=true; $('generate').disabled=true;
+  const todo=state.lines.filter(x=>!state.generated.has(x.id));
+  let done=0;
+  updateProgress(0,todo.length,'Generating English audio…');
+  for(const line of todo){
+    try{
+      const p=profiles[line.tag]||profiles.N;
+      const r=await fetch(apiBase()+'/api/speech',{method:'POST',headers:headers(),body:JSON.stringify({
+        text:line.text,voice:p.voice,instructions:instructions[line.tag]||instructions.N,model:'gpt-4o-mini-tts'
+      })});
+      if(!r.ok){let detail=`HTTP ${r.status}`;try{const j=await r.json();detail=j.error||detail;}catch{}throw new Error(detail);}
+      const blob=await r.blob();
+      state.generated.set(line.id,{blob,voice:p.voice,tag:line.tag});
+      renderResults();
+    }catch(e){
+      const row=document.createElement('div');row.className='result';row.textContent=`${line.id}: ${e.message}`;$('results').appendChild(row);
+    }
+    done++;updateProgress(done,todo.length,`Generated ${line.id}`);
+  }
+  state.running=false;$('generate').disabled=false;
+  $('generate').textContent='Generate remaining English audio';
+  updateProgress(done,todo.length,`Finished · ${state.generated.size} audio file(s) ready`);
 }
-function updateExportButton(){$("exportZipButton").disabled=generated.size===0;}
-async function exportZip(){
-  if(!window.JSZip){showToast("ZIP library did not load. Check your connection.");return;}
-  const zip=new JSZip(), folder=zip.folder("audio/en");
-  for(const item of batch){const blob=generated.get(batchKey(item));if(blob)folder.file(`${safeFilename(item.id)}.mp3`,blob);}
-  const ids=batch.filter(x=>generated.has(batchKey(x))).map(x=>x.id);
-  folder.file("manifest.json",JSON.stringify({language:"en",format:"mp3",recordings:ids},null,2));
-  const content=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:3}});
-  const url=URL.createObjectURL(content), a=document.createElement("a");
-  a.href=url;a.download="tts-audio-en.zip";document.body.appendChild(a);a.click();a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),30000);
+function parseExistingIds(src,lang){
+  const ids=new Set();
+  const re=/TW\.Dubs\.add\s*\(\s*(['"])([^'"]+)\1\s*,\s*\[([\s\S]*?)\]\s*\)\s*;?/g;
+  let m;
+  while((m=re.exec(src))!==null){
+    if(m[2]!==lang) continue;
+    const inner=m[3], q=/(["'])(.*?)\1/g;let n;
+    while((n=q.exec(inner))!==null) ids.add(n[2]);
+  }
+  return ids;
 }
-function safeFilename(s){return String(s).replace(/[^a-zA-Z0-9._-]/g,"_").slice(0,180)||"recording";}
-function clearBatch(){
-  if(!confirm("Clear this batch from the app? Saved audio remains in this browser unless you remove website data."))return;
-  batch=[];generated.clear();$("jsonInput").value="";$("lineList").className="line-list empty-state";$("lineList").textContent="Import or paste a batch to see your dialogue entries.";
-  $("lineCount").textContent="0 lines";$("parseStatus").textContent="No dialogue loaded";$("audioList").innerHTML="";
-  $("generateButton").disabled=true;setProgress(0,0,"Ready when you are");updateExportButton();
+async function exportOverlay(){
+  if(!window.JSZip){message($('exportMessage'),'ZIP library did not load. Refresh while online.');return;}
+  const zip=new JSZip(), lang=$('language').value;
+  if(lang!=='en'){message($('exportMessage'),'Spanish export will be enabled in phase 2.');return;}
+  let manifest=state.manifestText.trim();
+  if(!manifest) manifest=`// The Way — generated voice registrations.\n// Keep this file with your existing game manifest.\n`;
+  const existing=parseExistingIds(manifest,lang);
+  const newIds=[...state.generated.keys()].filter(id=>!existing.has(id));
+  for(const [id,item] of state.generated.entries()) zip.file(`audio/${lang}/${id}.mp3`,item.blob);
+  if(newIds.length){
+    manifest += `\n\n// TTS Studio additions — ${new Date().toISOString()}\nTW.Dubs.add('${lang}', ${JSON.stringify(newIds,null,2)});\n`;
+  }
+  zip.file('manifest.js',manifest);
+  zip.file('OVERLAY-README.txt',
+`TTS Studio audio overlay\n\nMerge this ZIP into the root of your existing game project. Keep the folder structure intact.\n\nFiles:\n- audio/${lang}/<line-id>.mp3 — generated dialogue audio\n- manifest.js — your imported manifest with new TW.Dubs.add('${lang}', [...]) registrations appended\n\nImportant:\n- Back up your existing project before merging.\n- If your game loads manifest.js from a different path, place the updated file at that same path.\n- Existing manifest content is preserved when you import your current manifest into TTS Studio before export.\n- Registrations already present for this language are not added a second time.\n- Spanish is reserved for phase 2 and will use audio/es/ with TW.Dubs.add('es', [...]).\n`);
+  const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});
+  const a=document.createElement('a'),url=URL.createObjectURL(blob);
+  a.href=url;a.download=`tts-studio-${lang}-overlay-${new Date().toISOString().slice(0,10)}.zip`;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),3000);
+  message($('exportMessage'),`Overlay created: ${state.generated.size} MP3 file(s), ${newIds.length} new manifest registration(s).`,true);
 }
-function openSettings(){
-  const s=settings();$("apiBase").value=s.base;$("accessCode").value=s.code;$("settingsMessage").textContent="";
-  $("settingsModal").hidden=false;
-}
-function saveSettings(){
-  localStorage.setItem("tts_api_base",normalizeBase($("apiBase").value.trim()));
-  localStorage.setItem("tts_access_code",$("accessCode").value);
-  $("settingsModal").hidden=true;testConnection(false);showToast("Settings saved on this device.");
-}
-async function loadSample(){
-  try{const r=await fetch("./sample-batch.json");if(!r.ok)throw new Error();$("jsonInput").value=JSON.stringify([{id:"s-KJV-7c5c72ce",voice:"S",text:"And now when the even was come, because it was the preparation, that is, the day before the sabbath, Joseph of Arimathea, an honourable counsellor, which also waited for the kingdom of God, came, and went in boldly unto Pilate, and craved the body of Jesus."}],null,2);parseBatch();}
-  catch{$("jsonInput").value=JSON.stringify([{id:"s-KJV-7c5c72ce",voice:"S",text:"And now when the even was come, because it was the preparation, that is, the day before the sabbath, Joseph of Arimathea, an honourable counsellor, which also waited for the kingdom of God, came, and went in boldly unto Pilate, and craved the body of Jesus."}],null,2);parseBatch();}
-}
-
-$("settingsOpen").addEventListener("click",openSettings);
-$("settingsClose").addEventListener("click",()=>$("settingsModal").hidden=true);
-$("settingsCancel").addEventListener("click",()=>$("settingsModal").hidden=true);
-$("saveSettings").addEventListener("click",saveSettings);
-$("testConnection").addEventListener("click",()=>{localStorage.setItem("tts_api_base",normalizeBase($("apiBase").value.trim()));localStorage.setItem("tts_access_code",$("accessCode").value);testConnection(true);});
-$("chooseFile").addEventListener("click",()=>$("fileInput").click());
-$("fileInput").addEventListener("change",async e=>{const f=e.target.files?.[0];if(!f)return;try{$("jsonInput").value=await f.text();parseBatch();}catch{showToast("Could not read that file.");}e.target.value="";});
-$("parseButton").addEventListener("click",parseBatch);
-$("loadSample").addEventListener("click",loadSample);
-$("generateButton").addEventListener("click",generateBatch);
-$("stopButton").addEventListener("click",()=>{stopRequested=true;$("stopButton").disabled=true;});
-$("exportZipButton").addEventListener("click",exportZip);
-$("clearButton").addEventListener("click",clearBatch);
-const dz=$("dropzone");
-["dragenter","dragover"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.style.borderColor="#a8d7c4";}));
-["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.style.borderColor="";}));
-dz.addEventListener("drop",async e=>{const f=e.dataTransfer.files?.[0];if(!f)return;try{$("jsonInput").value=await f.text();parseBatch();}catch{showToast("Could not read that file.");}});
-(async()=>{await testConnection(false);})();
+$('testConnection').addEventListener('click',testConnection);
+$('loadJson').addEventListener('click',()=>{
+  try{
+    state.lines=validateLines($('jsonInput').value);
+    $('dialogueSummary').hidden=false;
+    $('dialogueSummary').textContent=`${state.lines.length} valid lines · ${new Set(state.lines.map(x=>x.tag)).size} voice profile(s)`;
+    $('generate').disabled=false;
+    $('generate').textContent='Generate English audio';
+    message($('jsonMessage'),'Dialogue validated successfully.',true);
+  }catch(e){state.lines=[];$('generate').disabled=true;$('dialogueSummary').hidden=true;message($('jsonMessage'),e.message);}
+});
+$('jsonFile').addEventListener('change',async e=>{
+  const f=e.target.files?.[0];if(!f)return;
+  $('jsonInput').value=await f.text();
+  $('loadJson').click();
+});
+$('generate').addEventListener('click',generate);
+$('exportZip').addEventListener('click',exportOverlay);
+$('manifestFile').addEventListener('change',async e=>{
+  const f=e.target.files?.[0];if(!f)return;
+  state.manifestText=await f.text();
+  message($('exportMessage'),`Loaded ${f.name} (${state.manifestText.length.toLocaleString()} characters).`,true);
+});
+$('apiUrl').value=localStorage.getItem('ttsApiUrl')||'';
+renderProfiles();
+})();
