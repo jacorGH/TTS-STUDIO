@@ -2,81 +2,124 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#101827">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10131b">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TTS Studio">
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="apple-touch-icon" href="icon-180.png">
-  <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css">
   <title>TTS Studio</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icon-180.png">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
+  <script src="./app.js" defer></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand"><div class="brand-mark">T</div><div><strong>TTS Studio</strong><small>Dialogue audio workshop</small></div></div>
-    <span class="status" id="connectionStatus">Not connected</span>
-  </header>
-  <main>
-    <section class="hero">
-      <p class="eyebrow">BATCH VOICE GENERATION</p>
-      <h1>Turn dialogue into<br><span>ready-to-use audio.</span></h1>
-      <p class="sub">Import your dialogue JSON, assign voice profiles, generate MP3s, and export an overlay ZIP for your existing project.</p>
-    </section>
-
-    <section class="panel settings-panel">
-      <button class="settings-toggle" id="settingsToggle" aria-expanded="false" aria-controls="settingsContent">
-        <span><span class="step">⚙</span> <strong>Settings</strong><small>Server connection and API access</small></span>
-        <span class="settings-chevron" id="settingsChevron">＋</span>
-      </button>
-      <div id="settingsContent" hidden>
-        <label>Render API URL<input id="apiUrl" type="url" placeholder="https://your-service.onrender.com" autocomplete="url"></label>
-        <label>App access code<input id="accessCode" type="password" placeholder="Your APP_ACCESS_CODE" autocomplete="off"></label>
-        <div class="actions"><button class="secondary" id="testConnection">Test connection</button><span id="connectionMessage" class="hint">Your OpenAI key stays on the server.</span></div>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark"><span class="wave"></span></div>
+        <div>
+          <div class="brand-title">TTS Studio</div>
+          <div class="brand-subtitle">Game dialogue voice workshop</div>
+        </div>
       </div>
-    </section>
+      <button class="icon-button" id="settingsOpen" aria-label="Settings" title="Settings">⚙</button>
+    </header>
 
-    <section class="panel">
-      <div class="section-head"><div><span class="step">02</span><h2>Load dialogue</h2></div></div>
-      <div class="dropzone" id="dropzone">
-        <div class="upload-icon">↑</div><strong>Choose a JSON file</strong><span>or paste your dialogue below</span>
-        <input id="jsonFile" type="file" accept=".json,application/json">
-      </div>
-      <label>Dialogue JSON<textarea id="jsonInput" rows="7" spellcheck="false" placeholder='[{"id":"s-KJV-7c5c72ce","voice":"S","text":"And now when the even was come..."}]'></textarea></label>
-      <div class="actions"><button class="secondary" id="loadJson">Parse dialogue</button><span id="jsonMessage" class="hint">Expected fields: id, voice, text.</span></div>
-      <div id="dialogueSummary" class="summary" hidden></div>
-      <div id="parsedDialogue" class="parsed-dialogue" hidden>
-        <div class="parsed-heading"><strong>Parsed dialogue</strong><span id="parsedCount" class="hint"></span></div>
-        <div id="parsedLines" class="parsed-lines"></div>
-      </div>
-    </section>
+    <main>
+      <section class="hero">
+        <div class="eyebrow">OPENAI TEXT TO SPEECH</div>
+        <h1>Give your game<br><span>a voice.</span></h1>
+        <p>Import your dialogue JSON, assign voice profiles, generate MP3s and export them by ID.</p>
+        <div class="hero-pills"><span>JSON import</span><span>Batch generation</span><span>MP3 export</span></div>
+      </section>
 
-    <section class="panel">
-      <div class="section-head"><div><span class="step">03</span><h2>Language and voice profiles</h2></div><span class="pill">English active</span></div>
-      <label>Output language<select id="language"><option value="en">English — current production</option><option value="es" disabled>Spanish — phase 2</option></select></label>
-      <p class="hint">The export structure is language-aware now: English writes to <code>audio/en/</code>. Spanish will use <code>audio/es/</code> when enabled in phase 2.</p>
-      <div class="voice-grid" id="voiceProfiles"></div>
-    </section>
+      <section class="panel connection-panel">
+        <div class="panel-heading">
+          <div><div class="section-kicker">BACKEND</div><h2>Connection</h2></div>
+          <span id="connectionBadge" class="status-badge unknown">Not tested</span>
+        </div>
+        <div class="connection-row">
+          <span class="dot"></span>
+          <span id="connectionText">Add your Render backend URL in Settings.</span>
+        </div>
+      </section>
 
-    <section class="panel">
-      <div class="section-head"><div><span class="step">04</span><h2>Generate MP3 files</h2></div></div>
-      <div class="progress-wrap"><div class="progress-meta"><span id="progressLabel">Waiting for dialogue</span><strong id="progressCount">0 / 0</strong></div><div class="progress"><i id="progressBar"></i></div></div>
-      <button class="primary" id="generate" disabled>Generate English audio</button>
-      <p class="hint">Existing audio is not overwritten in your game folder. The overlay ZIP contains only this batch's generated files plus the updated manifest.</p>
-      <div id="results" class="results"></div>
-    </section>
+      <section class="panel">
+        <div class="panel-heading">
+          <div><div class="section-kicker">01 / SOURCE</div><h2>Dialogue batch</h2></div>
+          <button class="text-button" id="loadSample">Load sample</button>
+        </div>
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="fileInput" accept=".json,application/json" hidden>
+          <div class="upload-icon">↑</div>
+          <strong>Choose a JSON file</strong>
+          <span>or drop it here</span>
+          <button class="secondary-button" id="chooseFile">Browse Files</button>
+        </div>
+        <label class="field-label" for="jsonInput">Or paste your JSON</label>
+        <textarea id="jsonInput" spellcheck="false" autocapitalize="off" placeholder='[{"id":"s-KJV-7c5c72ce","voice":"S","text":"..."}]'></textarea>
+        <div class="source-footer">
+          <span id="parseStatus">No dialogue loaded</span>
+          <button class="primary-button" id="parseButton">Parse dialogue</button>
+        </div>
+      </section>
 
-    <section class="panel">
-      <div class="section-head"><div><span class="step">05</span><h2>Prepare project overlay</h2></div></div>
-      <label>Existing manifest.js <span class="optional">optional but recommended</span><input id="manifestFile" type="file" accept=".js,.mjs,.txt"></label>
-      <p class="hint">Import your current manifest to preserve its contents and registrations. New IDs are added only when they are not already registered.</p>
-      <button class="primary" id="exportZip" disabled>Export overlay ZIP</button>
-      <div id="exportMessage" class="hint"></div>
+      <section class="panel" id="batchPanel">
+        <div class="panel-heading">
+          <div><div class="section-kicker">02 / VOICES</div><h2>Voice assignments</h2></div>
+          <span class="count-chip" id="lineCount">0 lines</span>
+        </div>
+        <div class="voice-grid">
+          <div class="voice-card"><span class="voice-tag">N</span><div><b>Narrator</b><small>Ash · thoughtful male</small></div></div>
+          <div class="voice-card"><span class="voice-tag">W</span><div><b>Woman narrator</b><small>Coral · thoughtful female</small></div></div>
+          <div class="voice-card"><span class="voice-tag">S</span><div><b>Scripture</b><small>Sage · reverent reading</small></div></div>
+          <div class="voice-card"><span class="voice-tag">M</span><div><b>Male character</b><small>Onyx · conversational</small></div></div>
+          <div class="voice-card"><span class="voice-tag">F</span><div><b>Female character</b><small>Nova · conversational</small></div></div>
+        </div>
+        <div id="lineList" class="line-list empty-state">Import or paste a batch to see your dialogue entries.</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div><div class="section-kicker">03 / GENERATE</div><h2>Audio production</h2></div>
+          <span class="count-chip" id="generatedCount">0 / 0</span>
+        </div>
+        <div class="progress-track"><div id="progressBar"></div></div>
+        <div class="progress-meta"><span id="progressLabel">Ready when you are</span><span id="progressPercent">0%</span></div>
+        <div class="action-row">
+          <button class="primary-button grow" id="generateButton" disabled>Generate audio</button>
+          <button class="secondary-button" id="stopButton" disabled>Stop</button>
+        </div>
+        <div class="action-row export-row">
+          <button class="secondary-button grow" id="exportZipButton" disabled>↓ Export ZIP</button>
+          <button class="secondary-button" id="clearButton">Clear batch</button>
+        </div>
+        <div id="audioList" class="audio-list"></div>
+      </section>
+
+      <footer>
+        <span>Private API key · Secure backend · MP3 output</span>
+        <span>Built for game creators</span>
+      </footer>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="settingsModal" hidden>
+    <section class="settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="modal-heading"><div><div class="section-kicker">CONFIGURATION</div><h2 id="settingsTitle">Settings</h2></div><button class="icon-button" id="settingsClose" aria-label="Close">×</button></div>
+      <label class="field-label" for="apiBase">Backend URL</label>
+      <input id="apiBase" type="url" placeholder="https://your-service.onrender.com" autocapitalize="off">
+      <label class="field-label" for="accessCode">Private access code</label>
+      <input id="accessCode" type="password" placeholder="Your Render APP_ACCESS_CODE" autocomplete="off">
+      <p class="help-text">Your OpenAI API key stays on the backend. This app stores only the backend URL and its access code in this browser.</p>
+      <div class="modal-actions"><button class="secondary-button" id="settingsCancel">Cancel</button><button class="primary-button" id="saveSettings">Save settings</button></div>
+      <button class="text-button full-width" id="testConnection">Test connection</button>
+      <div id="settingsMessage" class="settings-message"></div>
     </section>
-    <footer>Built for mobile Safari · Your API key remains on your Render server.</footer>
-  </main>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="app.js"></script>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>
 </html>

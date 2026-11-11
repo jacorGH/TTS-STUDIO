@@ -1,54 +1,69 @@
-# TTS Studio — GitHub Pages + Render
+# TTS Studio
 
-Mobile-first dialogue-to-MP3 generator. The browser app runs on GitHub Pages; the private OpenAI API key stays on the Render backend.
+A mobile-first, installable web app for turning game dialogue JSON into OpenAI-generated MP3 files.
 
-## What this build includes
+## Architecture
 
-- Root `index.html` redirects to `/public/`.
-- English is enabled now and writes MP3 files to `audio/en/<line-id>.mp3`.
-- Spanish is reserved in the language structure for phase 2 (`audio/es/`).
-- JSON dialogue import and validation (`[{ "id", "voice", "text" }]`).
-- Voice tags: `N`, `W`, `S`, `M`, `F`.
-- Batch MP3 generation and preview.
-- Overlay ZIP export for merging into an existing game folder.
-- Import the current `manifest.js` before exporting; its contents are preserved and new IDs are appended without duplicate registrations.
-- GitHub Pages workflow publishes a root redirect plus the `/public/` app.
+- **Frontend:** static files in `public/`; host on GitHub Pages.
+- **Backend:** Node.js/Express in `server/`; deploy as a Render Web Service.
+- **API key:** stored only as a Render environment variable. It is never sent to the browser.
+- **Input format:** `[{ "id": "...", "voice": "S", "text": "..." }]`
+- **Output:** MP3 files named with each original `id`, plus a ZIP export.
 
-## Push to GitHub
+The five default voice profiles preserve the mapping in the supplied `dub-openai.mjs`:
+- `N` → ash
+- `W` → coral
+- `S` → sage
+- `M` → onyx
+- `F` → nova
 
-Upload the contents of this ZIP to the root of your existing repository, preserving folders. This is a fresh project package; if your existing repository has custom changes, back it up or merge rather than blindly overwriting those files.
+The TTS model defaults to `gpt-4o-mini-tts`. You can change the model and voice directions in `server/index.js`.
 
-GitHub Pages deployment is handled by `.github/workflows/pages.yml`. In repository Settings → Pages, select **GitHub Actions** as the build and deployment source. After the workflow succeeds, the repository root URL redirects to `/public/`.
+## 1. Deploy the backend to Render
 
-## Render backend
-
-The Render blueprint is in `render.yaml`. Create/update the web service using the `server` directory as root.
-
-Set these Render environment variables:
+1. Create a GitHub repository and upload the contents of this project.
+2. In Render, create **New → Web Service** and connect the repository.
+3. Set **Root Directory** to `server`.
+4. Set **Build Command** to `npm install`.
+5. Set **Start Command** to `npm start`.
+6. Add these environment variables in Render:
 
 | Variable | Value |
 |---|---|
-| `OPENAI_API_KEY` | Your OpenAI API key (keep private; never put it in GitHub) |
-| `APP_ACCESS_CODE` | A private access code you choose |
-| `ALLOWED_ORIGINS` | Exact Pages origin, e.g. `https://YOURNAME.github.io` |
-| `TTS_MODEL` | `gpt-4o-mini-tts` |
+| `OPENAI_API_KEY` | Your OpenAI API key |
+| `APP_ACCESS_CODE` | A long private passcode you choose |
+| `ALLOWED_ORIGINS` | Your GitHub Pages origin, e.g. `https://YOUR-USER.github.io` |
+| `TTS_MODEL` | `gpt-4o-mini-tts` (optional) |
 
-`ALLOWED_ORIGINS` is the origin only: do not include the repository path or `/public/`. For a GitHub Pages URL such as `https://YOURNAME.github.io/REPOSITORY/public/`, the origin is `https://YOURNAME.github.io`.
+Render assigns a service URL such as `https://your-tts-service.onrender.com`. Copy it.
 
-The API exposes `/health`, `/api/voices`, and `/api/speech`. `/health` is public; speech and voice endpoints require `x-app-access-code`.
+**Important:** Do not put the OpenAI API key in GitHub Pages, HTML, JavaScript, or this repository. The access code is a basic gate for a personal tool, not a replacement for strong user authentication. Do not share it publicly.
 
-## Use
+## 2. Deploy the frontend to GitHub Pages
 
-1. Open the Pages URL; it redirects to `/public/`.
-2. Enter your Render service URL and `APP_ACCESS_CODE` in TTS Studio.
+1. In `public/app.js`, find `DEFAULT_API_BASE`.
+2. Replace the empty string with your Render URL, for example:
+   `https://your-tts-service.onrender.com`
+3. Commit and push the project.
+4. In GitHub, open **Settings → Pages**.
+5. Under **Build and deployment → Source**, choose **GitHub Actions**. The included `.github/workflows/pages.yml` publishes the `public/` folder whenever you push to `main`.
+6. Open the Pages URL shown in the workflow deployment on your iPhone.
+
+The app can be added to the iPhone Home Screen using Safari's **Share → Add to Home Screen**.
+
+## 3. First run
+
+1. Open the app.
+2. Tap **Settings** and enter:
+   - Backend URL: your Render service URL
+   - Access code: the `APP_ACCESS_CODE` value configured on Render
 3. Tap **Test connection**.
-4. Paste or upload a JSON array. Each item requires `id`, `voice`, and `text`.
-5. Validate, generate, and preview the audio.
-6. Import your existing `manifest.js` in step 5.
-7. Export the overlay ZIP.
-8. Extract/merge the overlay into the root of your existing game project. It adds `audio/en/` and an updated `manifest.js`.
+4. Import your JSON file or paste JSON into the editor.
+5. Review the parsed lines and voice assignments.
+6. Generate audio. The app processes one line at a time and shows progress.
+7. Preview individual MP3s and export all generated audio as a ZIP.
 
-Example input:
+## JSON format
 
 ```json
 [
@@ -60,40 +75,43 @@ Example input:
 ]
 ```
 
-Voice tags map to OpenAI voices:
-- `N` → ash
-- `W` → coral
-- `S` → sage
-- `M` → onyx
-- `F` → nova
+Every item must have a unique `id`, a `voice` tag, and `text`. Unknown voice tags fall back to `N` on the server.
 
-The voice instructions are designed as starting profiles and can be refined after listening to sample output.
+## Notes and safeguards
 
-## Overlay ZIP and manifest behavior
+- Each text entry is limited to 4,096 characters by the backend.
+- Batch generation is sequential to avoid flooding the API and to keep progress predictable.
+- Existing generated audio is retained in this browser's local IndexedDB so you can resume and export later from the same browser on the same device.
+- Clearing Safari website data can remove locally cached recordings. Export ZIPs regularly.
+- OpenAI API usage is billed to your OpenAI API account. Review current pricing and model availability before large batches.
+- Render free instances may sleep when idle, so the first request after inactivity can take longer.
+- The backend includes basic rate limiting and requires the private access code.
 
-The overlay ZIP contains:
+## Project layout
 
 ```text
-audio/
-  en/
-    <line-id>.mp3
-manifest.js
-OVERLAY-README.txt
+tts-studio/
+  public/
+    index.html
+    styles.css
+    app.js
+    manifest.webmanifest
+    icon.svg
+    icon-180.png
+    icon-192.png
+    icon-512.png
+  server/
+    index.js
+    package.json
+  sample/
+    sample-batch.json
+  render.yaml
+  README.md
 ```
 
-Existing manifest content is retained if you import it before export. The app scans existing `TW.Dubs.add('en', [...])` registrations and appends only newly generated IDs. Keep the updated manifest at the path your game already loads. Back up the project before merging.
+## Troubleshooting
 
-## Spanish phase 2
-
-The app is structured around language-specific output paths and registrations. English is the only enabled production language in this build. When Spanish generation is added, it will produce `audio/es/<line-id>.mp3` and `TW.Dubs.add('es', [...])`, without mixing Spanish registrations into English.
-
-## Security notes
-
-- Never put `OPENAI_API_KEY` in frontend files or GitHub.
-- `APP_ACCESS_CODE` is a basic shared gate for a personal tool, not full user authentication.
-- Do not share your Render secrets in chat or commit them to the repository.
-
-
-## Interface update
-
-Server URL and access-code fields are collapsed under **Settings** by default. After parsing JSON, the app displays each parsed dialogue line with its ID, voice tag/profile, and text before generation.
+- **Connection failed:** check that the Render service is live, the backend URL has no trailing path, and `ALLOWED_ORIGINS` includes your GitHub Pages origin.
+- **Unauthorized:** make sure the app access code matches `APP_ACCESS_CODE` exactly.
+- **OpenAI error:** confirm the API key is valid, API billing is enabled, and the selected model/voice is available to your account.
+- **ZIP export fails:** ensure the device has enough free memory and try smaller batches.
