@@ -63,6 +63,27 @@ The app can be added to the iPhone Home Screen using Safari's **Share → Add to
 6. Generate audio. The app processes one line at a time and shows progress.
 7. Preview individual MP3s and export all generated audio as a ZIP.
 
+## Whole-project queue (dub index)
+
+The **00 / Project** panel generates an entire game's dialogue in one run, from an index file such as The Way's
+`dub/en/index.json`:
+
+1. Paste the index address, e.g. `https://YOU.github.io/the-way/dub/en/index.json`, and tap **Load index**. It is
+   remembered on this device. Every batch is listed with how many of its lines are already recorded here.
+2. Tap **Run all batches**. Lines are generated one at a time, in order. Everything is saved in this browser as it is
+   made, so **Stop** (or closing the app) loses nothing: tap **Run all batches** again to carry on.
+3. **Skip lines already published on the game site** (on by default) checks the game's `audio/<lang>/` folder first
+   and skips any line whose MP3 is already live, so nothing is paid for twice.
+4. Tap **Export new recordings** whenever you like. Only recordings made since the last export are packed, in ZIP
+   parts of up to about 35 MB, each laid out as `audio/<lang>/<id>.mp3`. Unzip into the game folder and push.
+   **Reset exports** forgets the export history so the next export includes everything on this device.
+
+The queue waits and retries when the server is waking up (Render free tier) or rate-limited. Any batch can also be
+opened in the single-batch view below with **Open in batch view**.
+
+The index format is `{ "language": "en", "batches": [{ "file": "01-capernaum.json", "title": "…", "lines": 23 }] }`;
+each batch file sits next to the index and holds `[{ "id", "voice", "text" }]`.
+
 ## JSON format
 
 ```json

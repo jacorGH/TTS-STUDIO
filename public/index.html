@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="./styles.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
   <script src="./app.js" defer></script>
+  <script src="./project.js" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -33,7 +34,7 @@
         <div class="eyebrow">OPENAI TEXT TO SPEECH</div>
         <h1>Give your game<br><span>a voice.</span></h1>
         <p>Import your dialogue JSON, assign voice profiles, generate MP3s and export them by ID.</p>
-        <div class="hero-pills"><span>JSON import</span><span>Batch generation</span><span>MP3 export</span></div>
+        <div class="hero-pills"><span>Whole-project queue</span><span>JSON import</span><span>Batch generation</span><span>MP3 export</span></div>
       </section>
 
       <section class="panel connection-panel">
@@ -45,6 +46,29 @@
           <span class="dot"></span>
           <span id="connectionText">Add your Render backend URL in Settings.</span>
         </div>
+      </section>
+
+      <section class="panel" id="projectPanel">
+        <div class="panel-heading">
+          <div><div class="section-kicker">00 / PROJECT</div><h2>Whole project</h2></div>
+          <button class="text-button" id="projectReset">Reset exports</button>
+        </div>
+        <label class="field-label" for="indexUrl">Dub index address</label>
+        <input id="indexUrl" type="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://YOU.github.io/the-way/dub/en/index.json">
+        <div class="source-footer">
+          <span id="projectStatus">Load an index to see every batch.</span>
+          <button class="primary-button" id="projectLoad">Load index</button>
+        </div>
+        <label class="check-row"><input type="checkbox" id="skipLive" checked> Skip lines already published on the game site</label>
+        <div class="action-row">
+          <button class="primary-button grow" id="projectRun" disabled>Run all batches</button>
+          <button class="secondary-button" id="projectStop" disabled>Stop</button>
+        </div>
+        <div class="action-row export-row">
+          <button class="secondary-button grow" id="projectExport" disabled>↓ Export new recordings</button>
+        </div>
+        <div class="progress-meta"><span id="projectProgress">Runs one line at a time and picks up where it left off.</span></div>
+        <div id="projectList" class="line-list empty-state">No index loaded yet.</div>
       </section>
 
       <section class="panel">
