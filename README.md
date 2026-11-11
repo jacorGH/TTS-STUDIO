@@ -81,6 +81,23 @@ The **00 / Project** panel generates an entire game's dialogue in one run, from 
 The queue waits and retries when the server is waking up (Render free tier) or rate-limited. Any batch can also be
 opened in the single-batch view below with **Open in batch view**.
 
+### Pronunciation
+If a `pronounce.json` sits next to the index (The Way ships one in `dub/en/`), the queue loads it: a list of names and
+how to say them, e.g. `"Capernaum": "kuh-PUR-nay-um"`, with the stressed syllable in capitals. For each line, only
+the names that line contains are added to its voice's usual direction (from `/api/voices`), so lines without hard
+names are sent exactly as before. Edit `pronounce.json` in the game repo to change how any name sounds.
+
+To fix lines that are already recorded, type a name in **Re-record** (e.g. `Capernaum`) and tap the button. Every
+recorded line containing it is cleared on this device, made again on the next run (even if the old version is
+already published), and included in the next export.
+
+### OpenAI limits
+OpenAI limits how many speech requests an account can make per minute and per day; an account without a payment
+method has low limits (for example 50 requests a day for `gpt-4o-mini-tts`). When a limit is hit, the queue pauses,
+shows when it will resume, and carries on by itself if the app stays open (an iPhone that locks pauses the page; tap
+**Run all batches** again later). After a per-minute limit it also slows down. Adding a payment method to the OpenAI
+account raises the limits; see platform.openai.com/account/limits.
+
 The index format is `{ "language": "en", "batches": [{ "file": "01-capernaum.json", "title": "…", "lines": 23 }] }`;
 each batch file sits next to the index and holds `[{ "id", "voice", "text" }]`.
 
