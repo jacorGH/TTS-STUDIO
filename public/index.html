@@ -25,11 +25,16 @@
       <p class="sub">Import your dialogue JSON, assign voice profiles, generate MP3s, and export an overlay ZIP for your existing project.</p>
     </section>
 
-    <section class="panel">
-      <div class="section-head"><div><span class="step">01</span><h2>Connect to your TTS server</h2></div></div>
-      <label>Render API URL<input id="apiUrl" type="url" placeholder="https://your-service.onrender.com" autocomplete="url"></label>
-      <label>App access code<input id="accessCode" type="password" placeholder="Your APP_ACCESS_CODE" autocomplete="off"></label>
-      <div class="actions"><button class="secondary" id="testConnection">Test connection</button><span id="connectionMessage" class="hint">Your OpenAI key stays on the server.</span></div>
+    <section class="panel settings-panel">
+      <button class="settings-toggle" id="settingsToggle" aria-expanded="false" aria-controls="settingsContent">
+        <span><span class="step">⚙</span> <strong>Settings</strong><small>Server connection and API access</small></span>
+        <span class="settings-chevron" id="settingsChevron">＋</span>
+      </button>
+      <div id="settingsContent" hidden>
+        <label>Render API URL<input id="apiUrl" type="url" placeholder="https://your-service.onrender.com" autocomplete="url"></label>
+        <label>App access code<input id="accessCode" type="password" placeholder="Your APP_ACCESS_CODE" autocomplete="off"></label>
+        <div class="actions"><button class="secondary" id="testConnection">Test connection</button><span id="connectionMessage" class="hint">Your OpenAI key stays on the server.</span></div>
+      </div>
     </section>
 
     <section class="panel">
@@ -39,8 +44,12 @@
         <input id="jsonFile" type="file" accept=".json,application/json">
       </div>
       <label>Dialogue JSON<textarea id="jsonInput" rows="7" spellcheck="false" placeholder='[{"id":"s-KJV-7c5c72ce","voice":"S","text":"And now when the even was come..."}]'></textarea></label>
-      <div class="actions"><button class="secondary" id="loadJson">Validate dialogue</button><span id="jsonMessage" class="hint">Expected fields: id, voice, text.</span></div>
+      <div class="actions"><button class="secondary" id="loadJson">Parse dialogue</button><span id="jsonMessage" class="hint">Expected fields: id, voice, text.</span></div>
       <div id="dialogueSummary" class="summary" hidden></div>
+      <div id="parsedDialogue" class="parsed-dialogue" hidden>
+        <div class="parsed-heading"><strong>Parsed dialogue</strong><span id="parsedCount" class="hint"></span></div>
+        <div id="parsedLines" class="parsed-lines"></div>
+      </div>
     </section>
 
     <section class="panel">

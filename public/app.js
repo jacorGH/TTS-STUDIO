@@ -22,6 +22,21 @@ function message(el,text,ok=false){el.textContent=text;el.style.color=ok?'#82d5b
 function renderProfiles(){
   $('voiceProfiles').innerHTML=Object.entries(profiles).map(([tag,p])=>`<div class="voice-card"><strong>${tag} · ${p.name}</strong><small>OpenAI voice: ${p.voice}<br>${p.description}</small></div>`).join('');
 }
+function renderParsedDialogue(){
+  const wrap=$('parsedDialogue'), list=$('parsedLines');
+  $('parsedCount').textContent=`${state.lines.length} line(s)`;
+  list.innerHTML=state.lines.map((line,i)=>{
+    const profile=profiles[line.tag]||profiles.N;
+    return `<article class="parsed-line">
+      <div class="parsed-line-top">
+        <span class="parsed-line-id"><span class="parsed-line-index">${String(i+1).padStart(2,'0')}</span>${escapeHtml(line.id)}</span>
+        <span class="parsed-voice">${escapeHtml(line.tag)} · ${escapeHtml(profile.name)}</span>
+      </div>
+      <div class="parsed-line-text">${escapeHtml(line.text)}</div>
+    </article>`;
+  }).join('');
+  wrap.hidden=state.lines.length===0;
+}
 function validateLines(raw){
   const data=JSON.parse(raw);
   if(!Array.isArray(data)) throw new Error('The JSON root must be an array.');
@@ -126,16 +141,24 @@ async function exportOverlay(){
   setTimeout(()=>URL.revokeObjectURL(url),3000);
   message($('exportMessage'),`Overlay created: ${state.generated.size} MP3 file(s), ${newIds.length} new manifest registration(s).`,true);
 }
+$('settingsToggle').addEventListener('click',()=>{
+  const content=$('settingsContent');
+  const opening=content.hidden;
+  content.hidden=!opening;
+  $('settingsToggle').setAttribute('aria-expanded',String(opening));
+  $('settingsChevron').textContent=opening?'−':'＋';
+});
 $('testConnection').addEventListener('click',testConnection);
 $('loadJson').addEventListener('click',()=>{
   try{
     state.lines=validateLines($('jsonInput').value);
+    renderParsedDialogue();
     $('dialogueSummary').hidden=false;
     $('dialogueSummary').textContent=`${state.lines.length} valid lines · ${new Set(state.lines.map(x=>x.tag)).size} voice profile(s)`;
     $('generate').disabled=false;
     $('generate').textContent='Generate English audio';
     message($('jsonMessage'),'Dialogue validated successfully.',true);
-  }catch(e){state.lines=[];$('generate').disabled=true;$('dialogueSummary').hidden=true;message($('jsonMessage'),e.message);}
+  }catch(e){state.lines=[];$('parsedDialogue').hidden=true;$('generate').disabled=true;$('dialogueSummary').hidden=true;message($('jsonMessage'),e.message);}
 });
 $('jsonFile').addEventListener('change',async e=>{
   const f=e.target.files?.[0];if(!f)return;

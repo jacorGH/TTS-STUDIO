@@ -92,3 +92,8 @@ The app is structured around language-specific output paths and registrations. E
 - Never put `OPENAI_API_KEY` in frontend files or GitHub.
 - `APP_ACCESS_CODE` is a basic shared gate for a personal tool, not full user authentication.
 - Do not share your Render secrets in chat or commit them to the repository.
+
+
+## Interface update
+
+Server URL and access-code fields are collapsed under **Settings** by default. After parsing JSON, the app displays each parsed dialogue line with its ID, voice tag/profile, and text before generation.
