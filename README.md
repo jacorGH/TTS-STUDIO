@@ -81,6 +81,22 @@ The **00 / Project** panel generates an entire game's dialogue in one run, from 
 The queue waits and retries when the server is waking up (Render free tier) or rate-limited. Any batch can also be
 opened in the single-batch view below with **Open in batch view**.
 
+### Voices, direction and speed (dub/en/voices.json)
+OpenAI's speech model has no inline tags; all direction goes in the `instructions` field, written as short labeled
+lines in this order: Voice Affect, Tone, Pacing, Emotion, Delivery (plus Pronunciation and Pauses when needed).
+If the game ships a `voices.json` next to the index (The Way does, in `dub/en/`), the queue uses it for every line:
+
+- `cast`: for each role (N, W, S, M, F), the OpenAI `voice`, a `speed` (0.25–4.0) and its `instructions`.
+- `kinds`: one line of context added for each kind of line (narration, historical note, Scripture, a question).
+- Each batch line also carries its `kind` and, for characters, its `speaker`, which are added to the direction.
+
+**Recording speed** in the panel multiplies every role's speed. Players can also change speed at playback in the
+game's settings, which needs no re-recording.
+
+The backend must be redeployed once to use these: it now uses `gpt-4o-mini-tts-2025-12-15`, accepts `openaiVoice`
+and `speed` per line, and allows up to 3,000 characters of instructions. OpenAI recommends the cedar and marin voices
+for the best quality.
+
 ### Pronunciation
 If a `pronounce.json` sits next to the index (The Way ships one in `dub/en/`), the queue loads it: a list of names and
 how to say them, e.g. `"Capernaum": "kuh-PUR-nay-um"`, with the stressed syllable in capitals. For each line, only

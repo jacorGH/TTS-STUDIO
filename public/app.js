@@ -104,7 +104,7 @@ async function generateBatch(){
     try{
       const response=await fetch(settings().base+"/api/speech",{
         method:"POST",headers:{...headers(),"Content-Type":"application/json"},
-        body:JSON.stringify(Object.assign({id:item.id,voice:item.voice,text:item.text},(typeof window.ttsInstructions==="function"&&window.ttsInstructions(item))?{instructions:window.ttsInstructions(item)}:{}))
+        body:JSON.stringify(Object.assign({id:item.id,voice:item.voice,text:item.text},typeof window.ttsVoiceFor==="function"?window.ttsVoiceFor(item):{},(typeof window.ttsInstructions==="function"&&window.ttsInstructions(item))?{instructions:window.ttsInstructions(item)}:{}))
       });
       if(!response.ok){const detail=await response.json().catch(()=>({}));const m=String(detail.detail||detail.error||`HTTP ${response.status}`);if(/per day|RPD/i.test(m)){const t=/try again in\s*([\dhms.]+)/i.exec(m);throw new Error(`OpenAI’s daily limit is reached. Try again in ${t?t[1]:"a while"}.`);}if(/rate limit/i.test(m))throw new Error("OpenAI’s per-minute limit; wait a minute and retry.");throw new Error(m);}
       const blob=await response.blob();

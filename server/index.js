@@ -6,29 +6,19 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const APP_ACCESS_CODE = process.env.APP_ACCESS_CODE;
-const MODEL = process.env.TTS_MODEL || "gpt-4o-mini-tts";
+// The dated snapshot OpenAI's own speech tooling now defaults to; override with TTS_MODEL if needed.
+const MODEL = process.env.TTS_MODEL || "gpt-4o-mini-tts-2025-12-15";
+// Built-in voices. OpenAI recommends cedar and marin for the best quality.
+const VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse", "marin", "cedar"];
 
+// Default cast. A game can override voice, speed and direction per line (The Way ships dub/en/voices.json).
+// Directions follow OpenAI's recommended order: affect, tone, pacing, emotion, delivery.
 const CAST = {
-  N: {
-    voice: "ash",
-    instructions: "A thoughtful young man in first-century Judea, telling what he saw. Warm, unhurried, plain. No theatrics."
-  },
-  W: {
-    voice: "coral",
-    instructions: "A thoughtful young woman in first-century Judea, telling what she saw. Warm, unhurried, plain. No theatrics."
-  },
-  S: {
-    voice: "sage",
-    instructions: "Reverent, clear and measured, as Scripture read aloud to a gathering. Pause gently at commas and between sentences."
-  },
-  M: {
-    voice: "onyx",
-    instructions: "A man speaking sincerely in the moment, natural and conversational, never exaggerated."
-  },
-  F: {
-    voice: "nova",
-    instructions: "A woman speaking sincerely in the moment, natural and conversational, never exaggerated."
-  }
+  N: { voice: "cedar", speed: 1.0, instructions: "Voice Affect: A young man in first-century Judea telling what he saw with his own eyes; present, engaged, alive to the moment.\nTone: Warm and sincere, with quiet wonder.\nPacing: Natural storytelling; quicken slightly in tense moments and slow down for important ones.\nEmotion: Let the feeling of each moment come through: curiosity, fear, awe, grief, joy. Never flat or monotone.\nDelivery: Vary pitch and emphasis as a good storyteller does; brief pauses before turning points." },
+  W: { voice: "marin", speed: 1.0, instructions: "Voice Affect: A young woman in first-century Judea telling what she saw with her own eyes; bright, observant, alive to the moment.\nTone: Warm and sincere, with quiet wonder.\nPacing: Natural storytelling; quicken slightly in tense moments and slow down for important ones.\nEmotion: Let the feeling of each moment come through: curiosity, fear, awe, grief, joy. Never flat or monotone.\nDelivery: Clear, full and well projected; vary pitch and emphasis; brief pauses before turning points." },
+  S: { voice: "verse", speed: 0.95, instructions: "Voice Affect: A reader of Scripture before a gathering; resonant and assured.\nTone: Reverent but alive, never sing-song or droning.\nPacing: Measured, unhurried; rest at commas and between sentences.\nEmotion: Let the words carry their own weight: tender where they are tender, urgent where they are urgent.\nDelivery: Clear and well projected; give quoted speech a slightly different color from the narration." },
+  M: { voice: "ash", speed: 1.0, instructions: "Voice Affect: A man speaking in the moment, in his own voice.\nTone: Natural and conversational, matching what he says: wry, frightened, angry, kind or joyful.\nPacing: The rhythm of real speech, with small hesitations where they fit.\nEmotion: Genuine and specific; never flat, never overacted.\nDelivery: Full, clear voice." },
+  F: { voice: "coral", speed: 1.0, instructions: "Voice Affect: A woman speaking in the moment, in her own voice.\nTone: Natural and conversational, matching what she says: wry, grieving, urgent, kind or joyful.\nPacing: The rhythm of real speech, with small hesitations where they fit.\nEmotion: Genuine and specific; never flat, never overacted.\nDelivery: Full, clear and well projected, never breathy or quiet." }
 };
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
@@ -70,15 +60,16 @@ app.get("/health", (_req, res) => {
 app.get("/api/voices", limiter, requireAccess, (_req, res) => {
   res.json({
     model: MODEL,
+    voices: VOICES,
     cast: Object.fromEntries(Object.entries(CAST).map(([tag, profile]) => [
-      tag, { voice: profile.voice, instructions: profile.instructions }
+      tag, { voice: profile.voice, speed: profile.speed, instructions: profile.instructions }
     ]))
   });
 });
 
 app.post("/api/speech", limiter, requireAccess, async (req, res) => {
   try {
-    const { id, voice, text, instructions: customInstructions } = req.body || {};
+    const { id, voice, text, instructions: customInstructions, openaiVoice, speed: customSpeed } = req.body || {};
     if (typeof id !== "string" || !id.trim() || id.length > 180) {
       return res.status(400).json({ error: "A valid id (1–180 characters) is required." });
     }
@@ -92,8 +83,12 @@ app.post("/api/speech", limiter, requireAccess, async (req, res) => {
     const tag = typeof voice === "string" ? voice.toUpperCase() : "N";
     const profile = CAST[tag] || CAST.N;
     const instructions = typeof customInstructions === "string" && customInstructions.trim()
-      ? customInstructions.trim().slice(0, 1000)
+      ? customInstructions.trim().slice(0, 3000)
       : profile.instructions;
+    // a game may choose the OpenAI voice and the speed for a line
+    const chosenVoice = typeof openaiVoice === "string" && VOICES.includes(openaiVoice.toLowerCase()) ? openaiVoice.toLowerCase() : profile.voice;
+    const n = Number(customSpeed);
+    const speed = Number.isFinite(n) && n > 0 ? Math.min(4, Math.max(0.25, n)) : (profile.speed || 1.0);
 
     if (!OPENAI_API_KEY) {
       return res.status(503).json({ error: "Backend is not configured: OPENAI_API_KEY is missing." });
@@ -107,8 +102,9 @@ app.post("/api/speech", limiter, requireAccess, async (req, res) => {
       },
       body: JSON.stringify({
         model: MODEL,
-        voice: profile.voice,
+        voice: chosenVoice,
         instructions,
+        speed,
         input: text,
         response_format: "mp3"
       })
@@ -128,7 +124,7 @@ app.post("/api/speech", limiter, requireAccess, async (req, res) => {
       "Content-Length": String(audio.length),
       "Content-Disposition": `attachment; filename="${safeFilename(id)}.mp3"`,
       "Cache-Control": "no-store",
-      "X-TTS-Voice": profile.voice
+      "X-TTS-Voice": chosenVoice
     });
     return res.send(audio);
   } catch (error) {

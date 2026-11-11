@@ -16,11 +16,17 @@
   // ---------- pronunciation ----------
   // The voice profiles (from /api/voices) give each tag its usual direction; the guide (pronounce.json next to the
   // index) says how names should sound. For each line, only the names it contains are added to that direction.
-  const PR = { cast: null, names: {}, re: null };
+  const PR = { cast: null, game: null, names: {}, re: null };
   async function loadCast() {
     if (PR.cast) return PR.cast;
     try { const r = await fetch(settings().base + '/api/voices', { headers: headers() }); if (r.ok) PR.cast = (await r.json()).cast || null; } catch { PR.cast = null; }
     return PR.cast;
+  }
+  // The game's own voice file (dub/en/voices.json): a voice, speed and direction per role, and context per kind of line.
+  async function loadGameCast(idx) {
+    PR.game = null;
+    try { const r = await fetch(baseOf(P.url) + (idx.cast || 'voices.json'), { cache: 'no-store' }); if (r.ok) PR.game = await r.json(); } catch { PR.game = null; }
+    return PR.game;
   }
   async function loadGuide(idx) {
     PR.names = {}; PR.re = null;
@@ -36,14 +42,35 @@
     } catch { return 0; }
   }
   // Called for every line, by this queue and by the single-batch screen (app.js).
+  const roleOf = (item) => String((item && item.voice) || 'N').toUpperCase();
+  // Direction for one line: the role's direction, context for this kind of line and who is speaking, and how to say
+  // any names in it. Used by this queue and by the single-batch screen (app.js).
   window.ttsInstructions = function (item) {
-    if (!PR.re || !item || !item.text) return '';
-    const found = [...new Set((item.text.match(PR.re) || []))];
-    if (!found.length) return '';
-    const tag = String(item.voice || 'N').toUpperCase();
-    const base = (PR.cast && (PR.cast[tag] || PR.cast.N) && (PR.cast[tag] || PR.cast.N).instructions) || '';
-    const say = found.map((n) => n + ' as ' + PR.names[n]).join('; ');
-    return (base + ' Pronounce these names exactly: ' + say + '. Capitals mark the stressed syllable; say the names naturally, not spelled out.').trim().slice(0, 1000);
+    if (!item || !item.text) return '';
+    const tag = roleOf(item);
+    const g = PR.game && PR.game.cast && (PR.game.cast[tag] || PR.game.cast.N);
+    const s = PR.cast && (PR.cast[tag] || PR.cast.N);
+    const parts = [];
+    const base = (g && g.instructions) || (s && s.instructions) || '';
+    if (base) parts.push(base);
+    const kind = PR.game && PR.game.kinds && item.kind && PR.game.kinds[item.kind];
+    if (kind) parts.push(kind);
+    if (item.speaker) parts.push('Speaker: ' + item.speaker + '.');
+    const found = PR.re ? [...new Set((item.text.match(PR.re) || []))] : [];
+    if (found.length) parts.push('Pronunciation: say ' + found.map((n) => n + ' as ' + PR.names[n]).join('; ') + '. Capitals mark the stressed syllable; say the names naturally, never spelled out.');
+    // with nothing beyond the server's own default, send nothing and let the server use it
+    if (!g && !kind && !item.speaker && !found.length) return '';
+    return parts.join('\n').slice(0, 3000);
+  };
+  // Voice and speed for one line, from the game's voice file, times the Recording speed setting.
+  window.ttsVoiceFor = function (item) {
+    const g = PR.game && PR.game.cast && (PR.game.cast[roleOf(item)] || PR.game.cast.N);
+    const mult = Number(localStorage.getItem('tts_speed') || 1) || 1;
+    const out = {};
+    if (g && g.voice) out.openaiVoice = g.voice;
+    const sp = ((g && g.speed) || 1) * mult;
+    if (Math.abs(sp - 1) > 0.001) out.speed = Math.round(sp * 100) / 100;
+    return out;
   };
   window.ttsLoadGuide = async () => { await loadCast(); };
   const el = (id) => document.getElementById(id);
@@ -92,8 +119,9 @@
       const idx = await r.json();
       if (!idx || !Array.isArray(idx.batches)) throw new Error('This file has no "batches" list.');
       P.index = idx; P.url = url; P.lang = idx.language || 'en'; P.cache.clear(); live.clear();
-      const n = await loadGuide(idx); await loadCast();
-      el('guideStatus').textContent = n ? 'Pronunciation guide: ' + n + ' names' + (PR.cast ? '' : ' (connect in Settings to combine it with the voice directions)') : 'No pronunciation guide found next to the index.';
+      const n = await loadGuide(idx); await loadCast(); await loadGameCast(idx);
+      const roles = PR.game && PR.game.cast ? Object.entries(PR.game.cast).map(([t, v]) => t + ' ' + v.voice).join(', ') : '';
+      el('guideStatus').textContent = (roles ? 'Voices from the game: ' + roles + '. ' : 'No voices.json found; using the server’s voices. ') + (n ? 'Pronunciation guide: ' + n + ' names.' : 'No pronunciation guide found.');
       P.batches = idx.batches.map((b) => ({ file: b.file, title: b.title || b.file, lines: b.lines || 0, characters: b.characters || 0, done: 0, total: b.lines || 0 }));
       renderList();
       el('projectStatus').textContent = 'Counting what is already recorded…';
@@ -171,7 +199,7 @@
       let response;
       const instructions = window.ttsInstructions(item);
       try {
-        response = await fetch(settings().base + '/api/speech', { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ id: item.id, voice: item.voice, text: item.text }, instructions ? { instructions } : {})) });
+        response = await fetch(settings().base + '/api/speech', { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ id: item.id, voice: item.voice, text: item.text }, window.ttsVoiceFor(item), instructions ? { instructions } : {})) });
       } catch (e) {
         // a sleeping free-tier server can drop the first request while it wakes
         el('projectProgress').textContent = 'Waiting for the server to wake… (' + (attempt + 1) + ')';
@@ -298,6 +326,8 @@
   el('indexUrl').value = localStorage.getItem(LS_URL) || '';
   el('skipLive').checked = localStorage.getItem(LS_SKIP) !== 'off';
   el('skipLive').addEventListener('change', () => localStorage.setItem(LS_SKIP, el('skipLive').checked ? 'on' : 'off'));
+  el('genSpeed').value = localStorage.getItem('tts_speed') || '1';
+  el('genSpeed').addEventListener('change', () => localStorage.setItem('tts_speed', el('genSpeed').value));
   el('projectLoad').addEventListener('click', loadIndex);
   el('projectRun').addEventListener('click', runAll);
   el('projectStop').addEventListener('click', () => { P.stop = true; el('projectStop').disabled = true; el('projectProgress').textContent = 'Stopping after this line…'; });
