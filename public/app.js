@@ -37,7 +37,8 @@ function setConnection(ok,message){$("connectionBadge").textContent=ok?"Connecte
 function setProgress(done,total,label){const pct=total?Math.round(done/total*100):0;$("progressBar").style.width=pct+"%";$("progressPercent").textContent=pct+"%";$("progressLabel").textContent=label;$("generatedCount").textContent=`${done} / ${total}`;}
 function safeText(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function normalizeBase(base){return base.replace(/\/+$/,"");}
-function batchKey(item){return `${item.id}`;}
+// English recordings are stored by id (as always); other languages by "<lang>:<id>", so the two never collide.
+function batchKey(item){return item.lang&&item.lang!=="en"?`${item.lang}:${item.id}`:`${item.id}`;}
 
 async function testConnection(showMessage=true){
   const {base,code}=settings();
@@ -68,7 +69,8 @@ function parseBatch(){
       if(!text.trim())throw new Error(`Entry ${index+1} has no text.`);
       if(text.length>4096)throw new Error(`Entry ${index+1} exceeds 4,096 characters.`);
       seen.add(id);
-      return {id,voice,text};
+      const lang=String(item.lang??window.ttsBatchLang??"en").toLowerCase();
+      return Object.assign({id,voice,text,lang},item.kind?{kind:item.kind}:{},item.speaker?{speaker:item.speaker}:{});
     });
     renderBatch();
     loadCached();
@@ -134,10 +136,8 @@ function renderAudio(){
 function updateExportButton(){$("exportZipButton").disabled=generated.size===0;}
 async function exportZip(){
   if(!window.JSZip){showToast("ZIP library did not load. Check your connection.");return;}
-  const zip=new JSZip(), folder=zip.folder("audio/en");
-  for(const item of batch){const blob=generated.get(batchKey(item));if(blob)folder.file(`${safeFilename(item.id)}.mp3`,blob);}
-  const ids=batch.filter(x=>generated.has(batchKey(x))).map(x=>x.id);
-  folder.file("manifest.json",JSON.stringify({language:"en",format:"mp3",recordings:ids},null,2));
+  const zip=new JSZip();
+  for(const item of batch){const blob=generated.get(batchKey(item));if(blob)zip.folder(`audio/${item.lang||"en"}`).file(`${safeFilename(item.id)}.mp3`,blob);}
   const content=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:3}});
   const url=URL.createObjectURL(content), a=document.createElement("a");
   a.href=url;a.download=(window.ttsBatchName?String(window.ttsBatchName).replace(/[^a-zA-Z0-9._-]+/g,"-"):"tts-audio-en")+".zip";document.body.appendChild(a);a.click();a.remove();

@@ -81,6 +81,18 @@ The **00 / Project** panel generates an entire game's dialogue in one run, from 
 The queue waits and retries when the server is waking up (Render free tier) or rate-limited. Any batch can also be
 opened in the single-batch view below with **Open in batch view**.
 
+### English and Spanish together
+Paste the address of either language's index (for The Way, `…/dub/en/index.json`). The queue also loads the other
+language next to it (`dub/es/`), and lists each batch once with both languages' progress. Untick a language under
+**Languages** to leave it out of runs. Each language uses its own `voices.json` and `pronounce.json`.
+
+- **Re-record batch** (on every row): clears that batch's recordings on this device, in the ticked languages, and
+  makes them again on the next run, even if already published.
+- **Exports**: one ZIP per batch, named after it (e.g. `01-capernaum.zip`), with `audio/en/` and `audio/es/` inside.
+- **Scripture in another version**: if the game's `dub/<lang>/` folder has a `scripture.json` (saved from the game's
+  developer tools), it appears as its own batch.
+- Recordings are stored on this device by line id for English (as before) and as `es:<id>` for Spanish.
+
 ### Voices, direction and speed (dub/en/voices.json)
 OpenAI's speech model has no inline tags; all direction goes in the `instructions` field, written as short labeled
 lines in this order: Voice Affect, Tone, Pacing, Emotion, Delivery (plus Pronunciation and Pauses when needed).

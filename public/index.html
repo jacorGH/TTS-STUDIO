@@ -54,11 +54,12 @@
           <button class="text-button" id="projectReset">Reset exports</button>
         </div>
         <label class="field-label" for="indexUrl">Dub index address</label>
-        <input id="indexUrl" type="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://YOU.github.io/the-way/dub/en/index.json">
+        <input id="indexUrl" type="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://YOU.github.io/the-way/dub/en/index.json (Spanish loads with it)">
         <div class="source-footer">
           <span id="projectStatus">Load an index to see every batch.</span>
           <button class="primary-button" id="projectLoad">Load index</button>
         </div>
+        <div class="check-row lang-row"><span>Languages:</span><label><input type="checkbox" id="lang_en" checked> English</label><label><input type="checkbox" id="lang_es" checked> Español</label></div>
         <label class="check-row"><input type="checkbox" id="skipLive" checked> Skip lines already published on the game site</label>
         <div class="progress-meta"><span id="guideStatus">Voices and pronunciation load with the index.</span></div>
         <div class="redo-row"><label for="genSpeed" class="field-label" style="margin:0;align-self:center;flex:1">Recording speed</label>
