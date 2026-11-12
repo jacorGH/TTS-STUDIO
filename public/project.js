@@ -87,8 +87,15 @@
       const guide = await getJSON(base + (idx.pronunciation || 'pronounce.json'));
       const names = guide ? guide.names || guide : {};
       const batches = idx.batches.map((b) => ({ file: b.file, title: b.title || b.file }));
-      const scr = await getJSON(base + 'scripture.json');
-      if (Array.isArray(scr) && scr.length) batches.push({ file: 'scripture.json', title: lang === 'es' ? 'Escritura (Reina-Valera)' : 'Scripture' });
+      // Scripture batches saved from the game's developer tools: scripture-<lang>-<version>.json (or plain scripture.json)
+      const VERSIONS = { en: ['WEB', 'ASV', 'KJV'], es: ['RV1909', 'RV1858', 'RVR1960'] };
+      for (const name of ['scripture.json'].concat((VERSIONS[lang] || []).map((v) => 'scripture-' + lang + '-' + v + '.json'))) {
+        const scr = await getJSON(base + name);
+        if (Array.isArray(scr) && scr.length) {
+          const ver = (/scripture-[a-z]+-([A-Za-z0-9]+)\.json/.exec(name) || [])[1];
+          batches.push({ file: name, title: (lang === 'es' ? 'Escritura' : 'Scripture') + (ver ? ' (' + ver + ')' : '') });
+        }
+      }
       P.L[lang] = { base, idx, cast, names, re: guideRegex(names), batches, cache: new Map() };
       notes.push(NAMES[lang] + ': ' + batches.length + ' batches' + (cast ? '' : ', no voices.json') + (Object.keys(names).length ? ', ' + Object.keys(names).length + ' names' : ''));
     }

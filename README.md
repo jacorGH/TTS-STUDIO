@@ -89,8 +89,9 @@ language next to it (`dub/es/`), and lists each batch once with both languages' 
 - **Re-record batch** (on every row): clears that batch's recordings on this device, in the ticked languages, and
   makes them again on the next run, even if already published.
 - **Exports**: one ZIP per batch, named after it (e.g. `01-capernaum.zip`), with `audio/en/` and `audio/es/` inside.
-- **Scripture in another version**: if the game's `dub/<lang>/` folder has a `scripture.json` (saved from the game's
-  developer tools), it appears as its own batch.
+- **Scripture in another version**: Scripture batches saved from the game's developer tools are named after their
+  language and version (`scripture-es-RV1909.json`, `scripture-en-KJV.json`). Put them in the matching `dub/<lang>/`
+  folder; each appears as its own batch, titled with its version.
 - Recordings are stored on this device by line id for English (as before) and as `es:<id>` for Spanish.
 
 ### Voices, direction and speed (dub/en/voices.json)
