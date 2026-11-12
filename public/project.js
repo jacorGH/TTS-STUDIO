@@ -86,10 +86,19 @@
       const cast = await getJSON(base + (idx.cast || 'voices.json'));
       const guide = await getJSON(base + (idx.pronunciation || 'pronounce.json'));
       const names = guide ? guide.names || guide : {};
-      const batches = idx.batches.map((b) => ({ file: b.file, title: b.title || b.file }));
-      // Scripture batches saved from the game's developer tools: scripture-<lang>-<version>.json (or plain scripture.json)
+      // Batches the index lists as coming from the game (Scripture in the installed Bible) are used once the file is there.
+      const batches = [], waiting = [];
+      for (const b of idx.batches) {
+        if (b.fromGame) {
+          const f = await getJSON(base + b.file);
+          if (Array.isArray(f) && f.length) batches.push({ file: b.file, title: b.title || b.file }); else waiting.push(b.file);
+        } else batches.push({ file: b.file, title: b.title || b.file });
+      }
+      if (waiting.length) notes.push(NAMES[lang] + ': add ' + waiting.join(', ') + ' from the game (?dev → Recorded voices → Scripture batch) into dub/' + lang + '/');
+      // Other Scripture batches saved from the game, even if the index does not list them
       const VERSIONS = { en: ['WEB', 'ASV', 'KJV'], es: ['RV1909', 'RV1858', 'RVR1960'] };
       for (const name of ['scripture.json'].concat((VERSIONS[lang] || []).map((v) => 'scripture-' + lang + '-' + v + '.json'))) {
+        if (idx.batches.some((b) => b.file === name)) continue;
         const scr = await getJSON(base + name);
         if (Array.isArray(scr) && scr.length) {
           const ver = (/scripture-[a-z]+-([A-Za-z0-9]+)\.json/.exec(name) || [])[1];
