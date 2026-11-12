@@ -88,7 +88,9 @@ language next to it (`dub/es/`), and lists each batch once with both languages' 
 
 - **Re-record batch** (on every row): clears that batch's recordings on this device, in the ticked languages, and
   makes them again on the next run, even if already published.
-- **Exports**: one ZIP per batch, named after it (e.g. `01-capernaum.zip`), with `audio/en/` and `audio/es/` inside.
+- **Exports**: everything new goes into one ZIP named with the date (e.g. `the-way-audio-2026-11-12.zip`), with
+  `audio/en/` and `audio/es/` inside. Only an export larger than about 150 MB is split into parts, since iPhone Safari
+  may not have the memory to build a bigger ZIP.
 - **Scripture in another version**: Scripture batches saved from the game's developer tools are named after their
   language and version (`scripture-es-RV1909.json`, `scripture-en-KJV.json`). Put them in the matching `dub/<lang>/`
   folder; each appears as its own batch, titled with its version.

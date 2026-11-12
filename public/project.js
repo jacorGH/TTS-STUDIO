@@ -9,7 +9,7 @@
 (function () {
   const LANGS = ['en', 'es'];
   const NAMES = { en: 'English', es: 'Español' };
-  const P = { url: '', root: '', L: {}, rows: [], running: false, stop: false, pace: 250, partBytes: 35 * 1024 * 1024 };
+  const P = { url: '', root: '', L: {}, rows: [], running: false, stop: false, pace: 250, zipBytes: 150 * 1024 * 1024 };
   const LS_URL = 'tts_index_url', LS_EXPORTED = 'tts_exported_ids', LS_SKIP = 'tts_skip_live', LS_REDO = 'tts_redo_ids', LS_LANGS = 'tts_langs';
   const el = (id) => document.getElementById(id);
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -270,45 +270,42 @@
     } finally { P.running = false; P.active = null; summarize(); P.rows.forEach(renderRow); }
   }
 
-  // ---------- exporting: one ZIP per batch, both languages inside ----------
+  // ---------- exporting: everything new in one ZIP, with audio/en/ and audio/es/ inside ----------
+  // (split into parts only if it would pass P.zipBytes, which iPhone Safari may not have the memory to build)
   async function exportNew() {
     if (!window.JSZip) { showToast('ZIP library did not load. Check your connection.'); return; }
     const done = getSet(LS_EXPORTED);
-    const work = [];
-    for (const row of P.rows) {
-      const items = [];
-      for (const lang of Object.keys(row.parts)) for (const it of await lines(lang, row.parts[lang].file)) {
-        const key = keyOf(lang, it.id); if (done.has(key)) continue;
-        const blob = await dbGet(key); if (blob instanceof Blob) items.push([lang, it.id, key, blob]);
-      }
-      if (items.length) work.push([row, items]);
+    const items = [];
+    for (const row of P.rows) for (const lang of Object.keys(row.parts)) for (const it of await lines(lang, row.parts[lang].file)) {
+      const key = keyOf(lang, it.id); if (done.has(key)) continue;
+      const blob = await dbGet(key); if (blob instanceof Blob) items.push([lang, it.id, key, blob]);
     }
-    if (!work.length) { showToast('Nothing new to export.'); return; }
+    if (!items.length) { showToast('Nothing new to export.'); return; }
     el('projectExport').disabled = true;
-    let files = 0, count = 0;
-    for (const [row, items] of work) {
-      const stem = row.stem.replace(/[^a-zA-Z0-9._-]+/g, '-');
-      let part = 1, zip = new JSZip(), bytes = 0, keys = [];
-      const flush = async (last) => {
-        if (!keys.length) return;
-        el('projectProgress').textContent = 'Packing ' + stem + (part > 1 || !last ? ' part ' + part : '') + ' (' + keys.length + ' files)…';
-        const content = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
-        const url = URL.createObjectURL(content), a = document.createElement('a');
-        a.href = url; a.download = stem + (part > 1 || !last ? '-part' + part : '') + '.zip';
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
-        keys.forEach((k) => done.add(k)); putSet(LS_EXPORTED, done);
-        files++; count += keys.length;
-        part++; zip = new JSZip(); bytes = 0; keys = [];
-        await wait(1500);
-      };
-      for (const [lang, id, key, blob] of items) {
-        if (bytes + blob.size > P.partBytes && keys.length) await flush(false);
-        zip.folder('audio/' + lang).file(safeFilename(id) + '.mp3', blob); bytes += blob.size; keys.push(key);
-      }
-      await flush(part === 1);
+    const total = items.reduce((n, x) => n + x[3].size, 0);
+    const parts = Math.max(1, Math.ceil(total / P.zipBytes));
+    const stamp = new Date().toISOString().slice(0, 10);
+    let part = 1, zip = new JSZip(), bytes = 0, keys = [], files = 0;
+    const flush = async () => {
+      if (!keys.length) return;
+      const name = 'the-way-audio-' + stamp + (parts > 1 ? '-part' + part : '') + '.zip';
+      el('projectProgress').textContent = 'Packing ' + name + ' (' + keys.length + ' recordings)…';
+      const content = await zip.generateAsync({ type: 'blob', compression: 'STORE', streamFiles: true });
+      const url = URL.createObjectURL(content), a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      keys.forEach((k) => done.add(k)); putSet(LS_EXPORTED, done);
+      files++; part++; zip = new JSZip(); bytes = 0; keys = [];
+      await wait(1500);
+    };
+    for (const [lang, id, key, blob] of items) {
+      if (bytes + blob.size > P.zipBytes && keys.length) await flush();
+      zip.folder('audio/' + lang).file(safeFilename(id) + '.mp3', blob); bytes += blob.size; keys.push(key);
     }
-    el('projectProgress').textContent = 'Exported ' + count + ' recordings in ' + files + ' ZIP file' + (files > 1 ? 's' : '') + ', named by batch, with audio/en and audio/es inside. Unzip each into the game folder and push.';
+    await flush();
+    const langs = [...new Set(items.map((x) => x[0]))].map((l) => 'audio/' + l).join(' and ');
+    el('projectProgress').textContent = 'Exported ' + items.length + ' recordings (' + Math.round(total / 1048576) + ' MB) in ' + (files === 1 ? 'one ZIP' : files + ' ZIP parts') + ', with ' + langs + ' inside. Unzip into the game folder and push.';
     summarize();
   }
 
