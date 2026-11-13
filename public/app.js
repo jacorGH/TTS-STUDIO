@@ -1,5 +1,8 @@
 const DEFAULT_API_BASE = "";
-const CAST_LABELS = {N:"Narrator · Ash",W:"Woman narrator · Coral",S:"Scripture · Sage",M:"Male character · Onyx",F:"Female character · Nova"};
+const CAST_ROLES = {N:"Narrator",W:"Woman narrator",S:"Scripture",M:"Man",F:"Woman"};
+// the role, and the voice this line will actually use (from the game's voices.json once an index is loaded)
+const CAST_LABELS = new Proxy({}, {get:(_, tag)=>CAST_ROLES[tag]||String(tag)});
+function castLabel(item){const v=typeof window.ttsVoiceFor==="function"?window.ttsVoiceFor(item).openaiVoice:"";return (CAST_ROLES[item.voice]||item.voice)+(v?" · "+v:"");}
 const $ = id => document.getElementById(id);
 let batch = [];
 let generated = new Map();
@@ -74,7 +77,7 @@ function parseBatch(){
     });
     renderBatch();
     loadCached();
-    $("parseStatus").textContent=`${batch.length} valid entries · ${batch.filter(x=>!CAST_LABELS[x.voice]).length} unknown voice tags use N`;
+    $("parseStatus").textContent=`${batch.length} valid entries · ${batch.filter(x=>!CAST_ROLES[x.voice]).length} unknown voice tags use N`;
     $("generateButton").disabled=false;
     updateExportButton();
     showToast(`${batch.length} dialogue entries loaded`);
@@ -82,8 +85,13 @@ function parseBatch(){
 }
 function renderBatch(){
   $("lineCount").textContent=`${batch.length} lines`;
+  const only=$("onlyMissing")&&$("onlyMissing").checked;
+  const shown=only?batch.filter(x=>!generated.has(batchKey(x))):batch;
+  const missing=batch.filter(x=>!generated.has(batchKey(x))).length;
+  if($("lineFoldTitle"))$("lineFoldTitle").textContent=`Lines: ${batch.length} · ${missing} not recorded yet`;
   $("lineList").className="line-list";
-  $("lineList").innerHTML=batch.map(item=>`<div class="line-item"><div class="line-top"><span class="line-id">${safeText(item.id)}</span><span class="line-voice">${safeText(item.voice)} · ${safeText(CAST_LABELS[item.voice]||"Fallback · Ash")}</span></div><div class="line-text">${safeText(item.text)}</div></div>`).join("");
+  if(only&&!shown.length&&batch.length){$("lineList").innerHTML='<div class="empty-state">Every line in this batch is recorded.</div>';return;}
+  $("lineList").innerHTML=shown.map(item=>`<div class="line-item"><div class="line-top"><span class="line-id">${safeText(item.id)}</span><span class="line-voice">${safeText(item.voice)} · ${safeText(castLabel(item))}</span></div><div class="line-text">${safeText(item.text)}</div></div>`).join("");
 }
 async function loadCached(){
   generated.clear();
@@ -126,6 +134,8 @@ async function generateBatch(){
 }
 function renderAudio(){
   const items=batch.filter(x=>generated.has(batchKey(x)));
+  if($("audioFoldTitle"))$("audioFoldTitle").textContent=`Recordings: ${items.length} of ${batch.length}`;
+  if(typeof renderBatch==="function"&&batch.length)renderBatch();
   $("audioList").innerHTML=items.map(item=>{
     const blob=generated.get(batchKey(item));
     const url=URL.createObjectURL(blob);
@@ -182,3 +192,5 @@ const dz=$("dropzone");
 ["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.style.borderColor="";}));
 dz.addEventListener("drop",async e=>{const f=e.dataTransfer.files?.[0];if(!f)return;try{$("jsonInput").value=await f.text();parseBatch();}catch{showToast("Could not read that file.");}});
 (async()=>{await testConnection(false);})();
+
+if($("onlyMissing"))$("onlyMissing").addEventListener("change",renderBatch);

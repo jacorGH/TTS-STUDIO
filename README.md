@@ -86,7 +86,11 @@ Paste the address of either language's index (for The Way, `…/dub/en/index.jso
 language next to it (`dub/es/`), and lists each batch once with both languages' progress. Untick a language under
 **Languages** to leave it out of runs. Each language uses its own `voices.json` and `pronounce.json`.
 
-- **Re-record batch** (on every row): clears that batch's recordings on this device, in the ticked languages, and
+- **Working on one batch**: every row has **Record** (records just that batch), **Export** (a ZIP of just that
+  batch's new recordings, named after it), **Open** (in the batch view) and **Re-record**. Use the search box (e.g.
+  “RV1909”) and **Only incomplete** to find it quickly; the list folds away when you don't need it.
+- **Batch view**: the line list folds away, and **Only lines not recorded yet** hides finished lines.
+- **Re-record** (on every row): clears that batch's recordings on this device, in the ticked languages, and
   makes them again on the next run, even if already published.
 - **Make exported files smaller** (on by default, 48 kbps): each recording is re-encoded as mono MP3 at the chosen
   bitrate before it goes into the ZIP (files already at or below it are copied as they are). Choose 56 or 64 kbps for a

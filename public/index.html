@@ -75,7 +75,11 @@
           <button class="secondary-button grow" id="projectExport" disabled>Export new (one ZIP)</button>
         </div>
         <div class="progress-meta"><span id="projectProgress">Runs one line at a time and picks up where it left off.</span></div>
-        <div id="projectList" class="line-list empty-state">No index loaded yet.</div>
+        <details class="fold" id="projectFold" open>
+          <summary><span id="projectFoldTitle">Batches</span></summary>
+          <div class="filter-row"><input id="projectSearch" type="search" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Find a batch, e.g. RV1909 or Capernaum"><label class="check-row"><input type="checkbox" id="onlyIncomplete"> Only incomplete</label></div>
+          <div id="projectList" class="line-list empty-state">No index loaded yet.</div>
+        </details>
       </section>
 
       <section class="panel">
@@ -104,13 +108,18 @@
           <span class="count-chip" id="lineCount">0 lines</span>
         </div>
         <div class="voice-grid">
-          <div class="voice-card"><span class="voice-tag">N</span><div><b>Narrator</b><small>Ash · thoughtful male</small></div></div>
-          <div class="voice-card"><span class="voice-tag">W</span><div><b>Woman narrator</b><small>Coral · thoughtful female</small></div></div>
-          <div class="voice-card"><span class="voice-tag">S</span><div><b>Scripture</b><small>Sage · reverent reading</small></div></div>
-          <div class="voice-card"><span class="voice-tag">M</span><div><b>Male character</b><small>Onyx · conversational</small></div></div>
-          <div class="voice-card"><span class="voice-tag">F</span><div><b>Female character</b><small>Nova · conversational</small></div></div>
+          <div class="voice-card"><span class="voice-tag">N</span><div><b>Narrator</b><small>Eleazar’s narration</small></div></div>
+          <div class="voice-card"><span class="voice-tag">W</span><div><b>Woman narrator</b><small>Elisheva’s narration</small></div></div>
+          <div class="voice-card"><span class="voice-tag">S</span><div><b>Scripture</b><small>Reading aloud</small></div></div>
+          <div class="voice-card"><span class="voice-tag">M</span><div><b>Men</b><small>Characters</small></div></div>
+          <div class="voice-card"><span class="voice-tag">F</span><div><b>Women</b><small>Characters</small></div></div>
         </div>
-        <div id="lineList" class="line-list empty-state">Import or paste a batch to see your dialogue entries.</div>
+        <p class="progress-meta">Each role’s voice and direction come from the game’s voices.json when the index is loaded.</p>
+        <details class="fold" id="lineFold">
+          <summary><span id="lineFoldTitle">Lines</span></summary>
+          <label class="check-row"><input type="checkbox" id="onlyMissing" checked> Only lines not recorded yet</label>
+          <div id="lineList" class="line-list empty-state">Import or paste a batch to see your dialogue entries.</div>
+        </details>
       </section>
 
       <section class="panel">
@@ -128,7 +137,9 @@
           <button class="secondary-button grow" id="exportZipButton" disabled>↓ Export ZIP</button>
           <button class="secondary-button" id="clearButton">Clear batch</button>
         </div>
+        <details class="fold" id="audioFold"><summary><span id="audioFoldTitle">Recordings</span></summary>
         <div id="audioList" class="audio-list"></div>
+        </details>
       </section>
 
       <footer>

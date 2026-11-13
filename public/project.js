@@ -145,13 +145,28 @@
       const r = document.createElement('div');
       r.className = 'line-item project-row'; r.dataset.stem = row.stem;
       r.innerHTML = '<div class="line-top"><span class="line-id project-title"></span></div><div class="project-langs"></div>' +
-        '<div class="project-actions"><button class="text-button" data-act="open">Open in batch view</button><button class="text-button" data-act="redo">Re-record batch</button></div>';
+        '<div class="project-actions"><button class="text-button" data-act="run">Record</button><button class="text-button" data-act="export">Export</button><button class="text-button" data-act="open">Open</button><button class="text-button" data-act="redo">Re-record</button></div>';
       r.querySelector('.project-title').textContent = row.title;
+      r.querySelector('[data-act=run]').addEventListener('click', () => runAll([row]));
+      r.querySelector('[data-act=export]').addEventListener('click', () => exportNew([row]));
       r.querySelector('[data-act=open]').addEventListener('click', () => openBatch(row));
       r.querySelector('[data-act=redo]').addEventListener('click', () => redoBatch(row));
       box.appendChild(r);
       renderRow(row);
     });
+  }
+  const complete = (row) => Object.keys(row.parts).filter(useLang).every((l) => row.parts[l].total && row.parts[l].done >= row.parts[l].total);
+  function applyFilter() {
+    const q = (el('projectSearch') && el('projectSearch').value || '').trim().toLowerCase();
+    const only = el('onlyIncomplete') && el('onlyIncomplete').checked;
+    let shown = 0;
+    P.rows.forEach((row) => {
+      const r = el('projectList').querySelector('[data-stem="' + CSS.escape(row.stem) + '"]'); if (!r) return;
+      const hit = (!q || (row.title + ' ' + row.stem).toLowerCase().includes(q)) && (!only || !complete(row));
+      r.hidden = !hit; if (hit) shown++;
+    });
+    const doneN = P.rows.filter(complete).length;
+    if (el('projectFoldTitle')) el('projectFoldTitle').textContent = 'Batches: ' + P.rows.length + ' · ' + doneN + ' complete' + (shown !== P.rows.length ? ' · showing ' + shown : '');
   }
   function renderRow(row) {
     const r = el('projectList').querySelector('[data-stem="' + CSS.escape(row.stem) + '"]');
@@ -166,6 +181,7 @@
       lg.appendChild(d);
     });
     r.classList.toggle('project-active', P.active === row.stem);
+    applyFilter();
   }
   function summarize() {
     const parts = [];
@@ -234,13 +250,14 @@
     }
     throw new Error('The server did not respond after several tries.');
   }
-  async function runAll() {
+  async function runAll(only) {
     if (!P.rows.length || P.running) return;
+    const rows = Array.isArray(only) ? only : P.rows;
     if (!(await testConnection(false))) { showToast('Connect to your backend first (Settings).'); return; }
     P.running = true; P.stop = false; summarize();
     const skipLive = el('skipLive').checked;
     try {
-      for (const row of P.rows) {
+      for (const row of rows) {
         for (const lang of Object.keys(row.parts)) {
           if (P.stop || !useLang(lang)) continue;
           const part = row.parts[lang];
@@ -262,8 +279,8 @@
         P.active = null; renderRow(row);
         if (P.stop) break;
       }
-      el('projectProgress').textContent = P.stop ? 'Stopped. Tap Run all to carry on.' : 'All batches done.';
-      if (!P.stop) showToast('Every batch is recorded.');
+      el('projectProgress').textContent = P.stop ? 'Stopped. Tap Run all (or Record on a batch) to carry on.' : (rows.length === 1 ? '“' + rows[0].title + '” is recorded. Tap Export on it to download it.' : 'All batches done.');
+      if (!P.stop) showToast(rows.length === 1 ? 'Batch recorded.' : 'Every batch is recorded.');
     } catch (e) {
       el('projectProgress').textContent = e.message === 'Stopped.' ? 'Stopped. Tap Run all to carry on.' : 'Paused: ' + e.message + ' Tap Run all to retry.';
       if (e.message !== 'Stopped.') showToast(e.message);
@@ -307,11 +324,12 @@
 
   // ---------- exporting: everything new in one ZIP, with audio/en/ and audio/es/ inside ----------
   // (split into parts only if it would pass P.zipBytes, which iPhone Safari may not have the memory to build)
-  async function exportNew() {
+  async function exportNew(only) {
     if (!window.JSZip) { showToast('ZIP library did not load. Check your connection.'); return; }
+    const rows = Array.isArray(only) ? only : P.rows;
     const done = getSet(LS_EXPORTED);
     const items = [];
-    for (const row of P.rows) for (const lang of Object.keys(row.parts)) for (const it of await lines(lang, row.parts[lang].file)) {
+    for (const row of rows) for (const lang of Object.keys(row.parts)) for (const it of await lines(lang, row.parts[lang].file)) {
       const key = keyOf(lang, it.id); if (done.has(key)) continue;
       const blob = await dbGet(key); if (blob instanceof Blob) items.push([lang, it.id, key, blob]);
     }
@@ -338,7 +356,7 @@
     let part = 1, zip = new JSZip(), bytes = 0, keys = [], files = 0;
     const flush = async () => {
       if (!keys.length) return;
-      const name = 'the-way-audio-' + stamp + (parts > 1 ? '-part' + part : '') + '.zip';
+      const name = 'the-way-audio-' + (rows.length === 1 ? rows[0].stem.replace(/[^a-zA-Z0-9._-]+/g, '-') + '-' : '') + stamp + (parts > 1 ? '-part' + part : '') + '.zip';
       el('projectProgress').textContent = 'Packing ' + name + ' (' + keys.length + ' recordings)…';
       const content = await zip.generateAsync({ type: 'blob', compression: 'STORE', streamFiles: true });
       const url = URL.createObjectURL(content), a = document.createElement('a');
@@ -410,9 +428,11 @@
     cb.addEventListener('change', () => { let on = {}; try { on = JSON.parse(localStorage.getItem(LS_LANGS) || '{}'); } catch { /* ignore */ } on[lang] = cb.checked; localStorage.setItem(LS_LANGS, JSON.stringify(on)); });
   });
   el('projectLoad').addEventListener('click', loadIndex);
-  el('projectRun').addEventListener('click', runAll);
+  el('projectRun').addEventListener('click', () => runAll());
+  if (el('projectSearch')) el('projectSearch').addEventListener('input', applyFilter);
+  if (el('onlyIncomplete')) { el('onlyIncomplete').checked = localStorage.getItem('tts_only_incomplete') === 'on'; el('onlyIncomplete').addEventListener('change', () => { localStorage.setItem('tts_only_incomplete', el('onlyIncomplete').checked ? 'on' : 'off'); applyFilter(); }); }
   el('projectStop').addEventListener('click', () => { P.stop = true; el('projectStop').disabled = true; el('projectProgress').textContent = 'Stopping after this line…'; });
-  el('projectExport').addEventListener('click', exportNew);
+  el('projectExport').addEventListener('click', () => exportNew());
   el('projectReset').addEventListener('click', resetExported);
   el('redoButton').addEventListener('click', redoName);
   if (el('indexUrl').value) loadIndex();
