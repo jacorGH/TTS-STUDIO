@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Audio compression test</title>
+<style>
+  :root { --bg: #f4ecd8; --card: #fbf6e8; --ink: #2a2016; --muted: #6a5a42; --line: #d8c8a4; --accent: #2e2219; --good: #2f6b3a; --warn: #8a3a2a; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #1d1813; --card: #2a231b; --ink: #f1e7d2; --muted: #b8a888; --line: #4a3e30; --accent: #e8d8b8; --good: #8fcf98; --warn: #e89a88; color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 40rem; margin: 0 auto; padding: 1rem 1rem 3rem; }
+  h1 { font-size: 1.35rem; margin: 0.4rem 0 0.2rem; }
+  h2 { font-size: 1.05rem; margin: 0 0 0.3rem; word-break: break-all; }
+  p { margin: 0.35rem 0; }
+  .muted { color: var(--muted); font-size: 0.9rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 0.9rem; margin: 0.8rem 0; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0.55rem 1rem; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent); color: var(--bg); font: inherit; font-weight: 600; cursor: pointer; }
+  .btn.ghost { background: transparent; color: var(--accent); }
+  .btn:disabled { opacity: 0.45; }
+  .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+  label.pick { display: block; }
+  input[type=file] { font: inherit; max-width: 100%; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.92rem; margin: 0.4rem 0; }
+  th, td { text-align: left; padding: 0.35rem 0.3rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  audio { width: 100%; height: 36px; margin: 0.15rem 0; }
+  .ver { padding: 0.45rem 0; border-top: 1px dashed var(--line); }
+  .ver:first-of-type { border-top: 0; }
+  .ver b { display: inline-block; min-width: 6.5rem; }
+  .good { color: var(--good); } .warn { color: var(--warn); }
+  .list { max-height: 16rem; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 0.3rem; background: var(--bg); }
+  .list label { display: flex; gap: 0.5rem; align-items: center; padding: 0.3rem; min-height: 36px; font-size: 0.9rem; word-break: break-all; }
+  .blind { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem; }
+  #status { min-height: 1.4rem; }
+  select { font: inherit; padding: 0.45rem; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); min-height: 40px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Audio compression test</h1>
+  <p class="muted">Test smaller versions of your recordings before changing anything. Everything happens on this phone; nothing is saved or uploaded.</p>
+
+  <div class="card">
+    <label class="pick"><b>1. Choose recordings</b><br>
+      <span class="muted">A few MP3s, or the export ZIP from TTS Studio.</span><br>
+      <input id="files" type="file" accept=".mp3,.zip,audio/mpeg,application/zip" multiple>
+    </label>
+    <div id="zipBox" hidden>
+      <p class="muted" id="zipNote"></p>
+      <div class="row"><button class="btn ghost" id="pickRandom" type="button">Pick 4 at random</button></div>
+      <div class="list" id="zipList"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <b>2. Compare</b>
+    <p class="muted">Each recording is decoded once and re-encoded as mono MP3 at these bitrates.</p>
+    <div class="row">
+      <label><input type="checkbox" value="64" class="rate" checked> 64 kbps</label>
+      <label><input type="checkbox" value="48" class="rate" checked> 48 kbps</label>
+      <label><input type="checkbox" value="40" class="rate" checked> 40 kbps</label>
+      <label><input type="checkbox" value="32" class="rate"> 32 kbps</label>
+    </div>
+    <p><label class="muted">Your current total <input id="total" type="number" value="235" min="1" style="width:5rem;font:inherit"> MB</label></p>
+    <div class="row"><button class="btn" id="run" type="button" disabled>Make compressed versions</button></div>
+    <p id="status" class="muted"></p>
+  </div>
+
+  <div id="summary"></div>
+  <div id="results"></div>
+
+  <p class="muted">Encoder: lamejs, a JavaScript build of the LAME MP3 encoder. Listen with headphones as well as the speaker; the blind test is the fairest check.</p>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const kb = (n) => (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
+  const status = (t) => { $('status').textContent = t; };
+  let chosen = [];      // [{ name, bytes: ArrayBuffer }]
+  let zipFiles = [];    // [{ name, entry }]
+
+  // --- reading the original: the MP3 frame header tells its bitrate, sample rate and channels ---
+  const BR = { 1: [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320], 2: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160] };
+  const SR = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] };
+  function mp3Info(buf) {
+    const b = new Uint8Array(buf);
+    let i = 0;
+    if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) i = 10 + ((b[6] & 0x7f) << 21 | (b[7] & 0x7f) << 14 | (b[8] & 0x7f) << 7 | (b[9] & 0x7f));
+    for (; i < b.length - 4; i++) {
+      if (b[i] !== 0xff || (b[i + 1] & 0xe0) !== 0xe0) continue;
+      const ver = (b[i + 1] >> 3) & 3, layer = (b[i + 1] >> 1) & 3, bri = (b[i + 2] >> 4) & 15, sri = (b[i + 2] >> 2) & 3, mode = (b[i + 3] >> 6) & 3;
+      if (ver === 1 || layer !== 1 || bri === 0 || bri === 15 || sri === 3) continue;
+      return { kbps: BR[ver === 3 ? 1 : 2][bri], rate: SR[ver][sri], mono: mode === 3 };
+    }
+    return null;
+  }
+  // --- decoding: at 24 kHz when the browser allows it (the speech is generated at 24 kHz) ---
+  async function decode(buf) {
+    try { const ctx = new OfflineAudioContext(1, 1, 24000); return await ctx.decodeAudioData(buf.slice(0)); }
+    catch (e) { const AC = window.AudioContext || window.webkitAudioContext; const ctx = new AC(); const out = await new Promise((res, rej) => ctx.decodeAudioData(buf.slice(0), res, rej)); ctx.close && ctx.close(); return out; }
+  }
+  function monoSamples(ab) {
+    const n = ab.length, out = new Float32Array(n);
+    for (let c = 0; c < ab.numberOfChannels; c++) { const d = ab.getChannelData(c); for (let i = 0; i < n; i++) out[i] += d[i] / ab.numberOfChannels; }
+    return out;
+  }
+  function silence(x, rate) {
+    const thr = 0.01; let a = 0, z = x.length - 1;
+    while (a < x.length && Math.abs(x[a]) < thr) a++;
+    while (z > a && Math.abs(x[z]) < thr) z--;
+    return { lead: a / rate, tail: (x.length - 1 - z) / rate };
+  }
+  // --- encoding with lamejs, as its documentation shows: 1152-sample blocks of 16-bit samples, then flush ---
+  function encode(x, rate, kbps) {
+    const enc = new lamejs.Mp3Encoder(1, rate, kbps);
+    const pcm = new Int16Array(x.length);
+    for (let i = 0; i < x.length; i++) { const s = Math.max(-1, Math.min(1, x[i])); pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff; }
+    const parts = [];
+    for (let i = 0; i < pcm.length; i += 1152) { const out = enc.encodeBuffer(pcm.subarray(i, i + 1152)); if (out.length) parts.push(new Int8Array(out)); }
+    const end = enc.flush(); if (end.length) parts.push(new Int8Array(end));
+    return new Blob(parts, { type: 'audio/mpeg' });
+  }
+
+  // --- choosing files ---
+  $('files').addEventListener('change', async (ev) => {
+    chosen = []; zipFiles = []; $('zipBox').hidden = true; $('results').innerHTML = ''; $('summary').innerHTML = '';
+    for (const f of ev.target.files) {
+      if (/\.zip$/i.test(f.name)) {
+        if (!window.JSZip) { status('The ZIP library did not load. Check your connection and reload.'); return; }
+        status('Opening ' + f.name + '…');
+        const z = await JSZip.loadAsync(f);
+        z.forEach((path, entry) => { if (!entry.dir && /\.mp3$/i.test(path)) zipFiles.push({ name: path, entry }); });
+        zipFiles.sort((a, b) => a.name.localeCompare(b.name));
+        showZip();
+      } else if (/\.mp3$/i.test(f.name) || f.type === 'audio/mpeg') {
+        chosen.push({ name: f.name, bytes: await f.arrayBuffer() });
+      }
+    }
+    if (!zipFiles.length) status(chosen.length ? chosen.length + ' recording' + (chosen.length > 1 ? 's' : '') + ' ready.' : 'No MP3 files found.');
+    $('run').disabled = !chosen.length && !zipFiles.length;
+  });
+  function showZip() {
+    $('zipBox').hidden = false;
+    $('zipNote').textContent = zipFiles.length + ' recordings in the ZIP. Tick up to 6, or pick 4 at random.';
+    const list = $('zipList'); list.innerHTML = '';
+    zipFiles.forEach((z, i) => {
+      const l = document.createElement('label');
+      l.innerHTML = '<input type="checkbox" data-i="' + i + '"> <span></span>';
+      l.querySelector('span').textContent = z.name;
+      list.appendChild(l);
+    });
+    status('');
+  }
+  $('pickRandom').addEventListener('click', () => {
+    const boxes = [...$('zipList').querySelectorAll('input')];
+    boxes.forEach((b) => { b.checked = false; });
+    const idx = [...boxes.keys()].sort(() => Math.random() - 0.5).slice(0, 4);
+    idx.forEach((k) => { boxes[k].checked = true; });
+    if (boxes[idx[0]]) boxes[idx[0]].scrollIntoView({ block: 'nearest' });
+  });
+
+  // --- the comparison ---
+  $('run').addEventListener('click', async () => {
+    if (!window.lamejs) { status('The MP3 encoder did not load. Check your connection and reload the page.'); return; }
+    const rates = [...document.querySelectorAll('.rate:checked')].map((c) => +c.value);
+    if (!rates.length) { status('Tick at least one bitrate.'); return; }
+    let items = chosen.slice();
+    if (zipFiles.length) {
+      const picked = [...$('zipList').querySelectorAll('input:checked')].map((c) => zipFiles[+c.dataset.i]).slice(0, 6);
+      if (!picked.length) { status('Tick some recordings in the list, or tap “Pick 4 at random”.'); return; }
+      for (const z of picked) items.push({ name: z.name.split('/').slice(-2).join('/'), bytes: await z.entry.async('arraybuffer') });
+    }
+    $('run').disabled = true; $('results').innerHTML = ''; $('summary').innerHTML = '';
+    const tot = { orig: 0 }; rates.forEach((r) => { tot[r] = 0; });
+    for (let n = 0; n < items.length; n++) {
+      const it = items[n];
+      status('Working on ' + (n + 1) + ' of ' + items.length + '…');
+      await new Promise((r) => setTimeout(r, 30));
+      let ab;
+      try { ab = await decode(it.bytes); } catch (e) { addError(it.name, 'could not be decoded'); continue; }
+      const info = mp3Info(it.bytes) || {};
+      const x = monoSamples(ab), sil = silence(x, ab.sampleRate);
+      const versions = [{ label: 'Original', blob: new Blob([it.bytes], { type: 'audio/mpeg' }), size: it.bytes.byteLength }];
+      tot.orig += it.bytes.byteLength;
+      for (const r of rates) {
+        let blob; try { blob = encode(x, ab.sampleRate, r); } catch (e) { addError(it.name, 'could not be encoded at ' + r + ' kbps (' + e.message + ')'); continue; }
+        versions.push({ label: r + ' kbps', blob, size: blob.size, rate: r }); tot[r] += blob.size;
+        await new Promise((res) => setTimeout(res, 10));
+      }
+      addCard(it.name, info, ab, sil, versions);
+    }
+    showSummary(tot, rates);
+    status('Done. Listen to each version, then try the blind test.');
+    $('run').disabled = false;
+  });
+
+  function addError(name, why) {
+    const c = document.createElement('div'); c.className = 'card';
+    c.innerHTML = '<h2></h2><p class="warn"></p>'; c.querySelector('h2').textContent = name; c.querySelector('p').textContent = 'This file ' + why + '.';
+    $('results').appendChild(c);
+  }
+  function addCard(name, info, ab, sil, versions) {
+    const c = document.createElement('div'); c.className = 'card';
+    const h = document.createElement('h2'); h.textContent = name; c.appendChild(h);
+    const p = document.createElement('p'); p.className = 'muted';
+    p.textContent = 'Original: ' + (info.kbps ? info.kbps + ' kbps, ' : '') + (info.rate ? (info.rate / 1000) + ' kHz, ' : '') + (info.mono === undefined ? '' : info.mono ? 'mono, ' : 'stereo, ') + ab.duration.toFixed(1) + ' s · silence at start ' + sil.lead.toFixed(2) + ' s, at end ' + sil.tail.toFixed(2) + ' s';
+    c.appendChild(p);
+    const orig = versions[0].size;
+    versions.forEach((v) => {
+      const d = document.createElement('div'); d.className = 'ver';
+      const t = document.createElement('div');
+      t.innerHTML = '<b></b> <span class="num"></span> <span></span>';
+      t.querySelector('b').textContent = v.label;
+      t.querySelector('.num').textContent = kb(v.size);
+      if (v.rate) { const s = t.querySelector('span:last-child'); const saved = Math.round((1 - v.size / orig) * 100); s.textContent = saved >= 0 ? '· ' + saved + '% smaller' : '· ' + (-saved) + '% larger'; s.className = saved > 0 ? 'good' : 'warn'; }
+      const a = document.createElement('audio'); a.controls = true; a.preload = 'auto'; a.src = URL.createObjectURL(v.blob);
+      d.append(t, a); c.appendChild(d);
+    });
+    // blind test against one compressed version
+    const comp = versions.filter((v) => v.rate);
+    if (comp.length) {
+      const bt = document.createElement('div'); bt.className = 'ver';
+      const sel = document.createElement('select'); comp.forEach((v, i) => { const o = document.createElement('option'); o.value = i; o.textContent = 'Blind test: original vs ' + v.label; sel.appendChild(o); });
+      const play = document.createElement('button'); play.className = 'btn ghost'; play.type = 'button'; play.textContent = 'Play one at random';
+      const g = document.createElement('div'); g.className = 'blind';
+      const gO = document.createElement('button'); gO.className = 'btn ghost'; gO.type = 'button'; gO.textContent = 'That was the original';
+      const gC = document.createElement('button'); gC.className = 'btn ghost'; gC.type = 'button'; gC.textContent = 'That was compressed';
+      const res = document.createElement('p'); res.className = 'muted';
+      let secret = null, right = 0, tries = 0; const player = new Audio();
+      play.addEventListener('click', () => { const v = comp[+sel.value]; secret = Math.random() < 0.5 ? 'o' : 'c'; player.src = URL.createObjectURL(secret === 'o' ? versions[0].blob : v.blob); player.play(); res.textContent = 'Listening… which was it?'; });
+      const guess = (gs) => { if (!secret) return; tries++; if (gs === secret) right++; res.textContent = (gs === secret ? 'Right. ' : 'Wrong: it was the ' + (secret === 'o' ? 'original' : 'compressed one') + '. ') + 'Score: ' + right + ' of ' + tries + '. About half right means you cannot hear a difference.'; secret = null; };
+      gO.addEventListener('click', () => guess('o')); gC.addEventListener('click', () => guess('c'));
+      sel.addEventListener('change', () => { right = 0; tries = 0; res.textContent = ''; });
+      g.append(gO, gC); bt.append(sel, document.createElement('br'), play, g, res); c.appendChild(bt);
+    }
+    $('results').appendChild(c);
+  }
+  function showSummary(tot, rates) {
+    const total = +$('total').value || 0;
+    const c = document.createElement('div'); c.className = 'card';
+    let html = '<b>Summary</b><table><tr><th>Version</th><th>These files</th><th>Saved</th><th>Your ' + total + ' MB would be</th></tr>';
+    html += '<tr><td>Original</td><td class="num">' + kb(tot.orig) + '</td><td></td><td class="num">' + total + ' MB</td></tr>';
+    rates.forEach((r) => { const f = tot[r] / tot.orig; html += '<tr><td>' + r + ' kbps</td><td class="num">' + kb(tot[r]) + '</td><td class="num ' + (f < 1 ? 'good' : 'warn') + '">' + Math.round((1 - f) * 100) + '%</td><td class="num">about ' + Math.round(total * f) + ' MB</td></tr>'; });
+    html += '</table><p class="muted">Estimates from these files only; a few more files give a better estimate.</p>';
+    c.innerHTML = html; $('summary').appendChild(c);
+  }
+})();
+</script>
+</body>
+</html>
