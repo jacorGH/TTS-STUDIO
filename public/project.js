@@ -270,6 +270,41 @@
     } finally { P.running = false; P.active = null; summarize(); P.rows.forEach(renderRow); }
   }
 
+  // ---------- making exports smaller: decode at 24 kHz and re-encode as mono MP3 with lamejs (as in audio-compress-test.html) ----------
+  function loadLame() {
+    if (window.lamejs) return Promise.resolve(true);
+    return new Promise((res) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js'; s.onload = () => res(!!window.lamejs); s.onerror = () => res(false); document.head.appendChild(s); });
+  }
+  const BRT = { 1: [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320], 2: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160] };
+  function mp3Kbps(b) {
+    let i = 0;
+    if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) i = 10 + ((b[6] & 0x7f) << 21 | (b[7] & 0x7f) << 14 | (b[8] & 0x7f) << 7 | (b[9] & 0x7f));
+    for (; i < b.length - 4; i++) {
+      if (b[i] !== 0xff || (b[i + 1] & 0xe0) !== 0xe0) continue;
+      const ver = (b[i + 1] >> 3) & 3, layer = (b[i + 1] >> 1) & 3, bri = (b[i + 2] >> 4) & 15, sri = (b[i + 2] >> 2) & 3;
+      if (ver === 1 || layer !== 1 || bri === 0 || bri === 15 || sri === 3) continue;
+      return BRT[ver === 3 ? 1 : 2][bri];
+    }
+    return 0;
+  }
+  async function shrink(blob, kbps) {
+    const buf = await blob.arrayBuffer();
+    const now = mp3Kbps(new Uint8Array(buf));
+    if (now && now <= kbps) return blob;                       // already small enough
+    let ab;
+    try { ab = await new OfflineAudioContext(1, 1, 24000).decodeAudioData(buf.slice(0)); }
+    catch (e) { const AC = window.AudioContext || window.webkitAudioContext; const ctx = new AC(); ab = await new Promise((r, j) => ctx.decodeAudioData(buf.slice(0), r, j)); if (ctx.close) ctx.close(); }
+    const n = ab.length, x = new Float32Array(n);
+    for (let c = 0; c < ab.numberOfChannels; c++) { const d = ab.getChannelData(c); for (let i = 0; i < n; i++) x[i] += d[i] / ab.numberOfChannels; }
+    const pcm = new Int16Array(n);
+    for (let i = 0; i < n; i++) { const s = Math.max(-1, Math.min(1, x[i])); pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff; }
+    const enc = new lamejs.Mp3Encoder(1, ab.sampleRate, kbps), parts = [];
+    for (let i = 0; i < n; i += 1152) { const o = enc.encodeBuffer(pcm.subarray(i, i + 1152)); if (o.length) parts.push(new Int8Array(o)); }
+    const end = enc.flush(); if (end.length) parts.push(new Int8Array(end));
+    const out = new Blob(parts, { type: 'audio/mpeg' });
+    return out.size > 0 && out.size < blob.size ? out : blob;
+  }
+
   // ---------- exporting: everything new in one ZIP, with audio/en/ and audio/es/ inside ----------
   // (split into parts only if it would pass P.zipBytes, which iPhone Safari may not have the memory to build)
   async function exportNew() {
@@ -282,6 +317,21 @@
     }
     if (!items.length) { showToast('Nothing new to export.'); return; }
     el('projectExport').disabled = true;
+    // optionally make each recording smaller first
+    const kbps = el('shrinkOn') && el('shrinkOn').checked ? Number(el('shrinkKbps').value) || 48 : 0;
+    if (kbps) {
+      if (!(await loadLame())) { showToast('The MP3 encoder did not load, so the export is not made smaller. Check your connection.'); }
+      else {
+        let was = 0, now = 0, failedN = 0;
+        for (let i = 0; i < items.length; i++) {
+          was += items[i][3].size;
+          if (i % 5 === 0) { el('projectProgress').textContent = 'Making recordings smaller (' + kbps + ' kbps)… ' + (i + 1) + ' of ' + items.length; await wait(0); }
+          try { items[i][3] = await shrink(items[i][3], kbps); } catch (e) { failedN++; }
+          now += items[i][3].size;
+        }
+        showToast('Recordings ' + Math.round((1 - now / was) * 100) + '% smaller' + (failedN ? ' (' + failedN + ' kept as they were)' : ''));
+      }
+    }
     const total = items.reduce((n, x) => n + x[3].size, 0);
     const parts = Math.max(1, Math.ceil(total / P.zipBytes));
     const stamp = new Date().toISOString().slice(0, 10);
@@ -346,6 +396,12 @@
   el('indexUrl').value = localStorage.getItem(LS_URL) || '';
   el('skipLive').checked = localStorage.getItem(LS_SKIP) !== 'off';
   el('skipLive').addEventListener('change', () => localStorage.setItem(LS_SKIP, el('skipLive').checked ? 'on' : 'off'));
+  if (el('shrinkOn')) {
+    el('shrinkOn').checked = localStorage.getItem('tts_shrink') !== 'off';
+    el('shrinkKbps').value = localStorage.getItem('tts_shrink_kbps') || '48';
+    el('shrinkOn').addEventListener('change', () => localStorage.setItem('tts_shrink', el('shrinkOn').checked ? 'on' : 'off'));
+    el('shrinkKbps').addEventListener('change', () => localStorage.setItem('tts_shrink_kbps', el('shrinkKbps').value));
+  }
   el('genSpeed').value = localStorage.getItem('tts_speed') || '1';
   el('genSpeed').addEventListener('change', () => localStorage.setItem('tts_speed', el('genSpeed').value));
   LANGS.forEach((lang) => {

@@ -88,6 +88,9 @@ language next to it (`dub/es/`), and lists each batch once with both languages' 
 
 - **Re-record batch** (on every row): clears that batch's recordings on this device, in the ticked languages, and
   makes them again on the next run, even if already published.
+- **Make exported files smaller** (on by default, 48 kbps): each recording is re-encoded as mono MP3 at the chosen
+  bitrate before it goes into the ZIP (files already at or below it are copied as they are). Choose 56 or 64 kbps for a
+  fuller sound. `audio-compress-test.html` lets you listen to the settings first.
 - **Exports**: everything new goes into one ZIP named with the date (e.g. `the-way-audio-2026-11-12.zip`), with
   `audio/en/` and `audio/es/` inside. Only an export larger than about 150 MB is split into parts, since iPhone Safari
   may not have the memory to build a bigger ZIP.
